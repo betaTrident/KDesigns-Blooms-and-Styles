@@ -135,6 +135,7 @@
             <!-- Product Card 3 -->
             <div class="product-card" data-category="fresh">
                 <div class="product-img-wrapper">
+                    <span class="tag tag-luxury">LUXURY</span>
                     <img src="images/IMG_8630.JPG" alt="Sunflower & Wildflower Mix">
                 </div>
                 <div class="product-info">
