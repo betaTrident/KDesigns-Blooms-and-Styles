@@ -1,3 +1,8 @@
+<?php
+// Initialize session management to handle login state[cite: 1]
+session_start();
+$is_logged_in = isset($_SESSION['user_email']);
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -29,7 +34,12 @@
                 <li><a href="#catalog">CATALOG</a></li>
             </ul>
             <div class="nav-actions">
-                <a href="#" class="btn-login">LOG IN</a>
+                <?php if ($is_logged_in): ?>
+                    <!-- Apply htmlspecialchars on any output rendered as HTML to prevent XSS[cite: 1] -->
+                    <a href="logout.php" class="btn-login">LOG OUT (<?= htmlspecialchars($_SESSION['user_email']); ?>)</a>
+                <?php else: ?>
+                    <a href="login.php" class="btn-login">LOG IN</a>
+                <?php endif; ?>
                 <a href="#" class="btn-cart"><i class="fa-solid fa-cart-shopping"></i> CART</a>
             </div>
         </div>
@@ -56,8 +66,8 @@
     <section id="about" class="about-section container">
         <div class="about-images">
             <div class="badge-year"><span>3</span><br>YEARS</div>
-            <img src="images/IMG_8603.JPG" alt="Fresh Bouquet" class="img-main">
-            <img src="images/0e011570-2704-40fb-9a24-6a18d7c52867.jfif" alt="Claire Ann Ross - Florist" class="img-inset">
+            <img src="images/0e011570-2704-40fb-9a24-6a18d7c52867.jfif" alt="Fresh Bouquet" class="img-main">
+            <img src="images/IMG_8603.JPG" alt="Claire Ann Ross - Florist" class="img-inset">
         </div>
         <div class="about-text">
             <span class="subtitle">OUR STORY</span>
@@ -100,16 +110,16 @@
             <div class="product-card" data-category="fresh">
                 <div class="product-img-wrapper">
                     <span class="tag tag-bestseller">BESTSELLER</span>
-                    <img src="images/IMG_8603.JPG" alt="Crimson Romance Bouquet">
+                    <img src="images/IMG_8603.JPG" alt="Classic KDesigns">
                 </div>
                 <div class="product-info">
                     <span class="category">FRESH BOUQUET</span>
-                    <h4>Crimson Romance Bouquet</h4>
-                    <p class="desc">Lush red roses with baby's breath and eucalyptus, hand-tied with silk ribbon.</p>
+                    <h4>Classic KDesigns</h4>
+                    <p class="desc">Crisp white blooms with baby's breath and eucalyptus, elegantly wrapped in cream and frosted paper.</p>
                     <span class="stock in-stock">12 in stock</span>
                     <div class="product-bottom">
-                        <span class="price">₱1,850</span>
-                        <button class="btn-primary add-to-cart">ADD TO CART</button>
+                        <span class="price">₱2,000</span>
+                        <button class="btn-primary add-to-cart">PLACE ORDER</button>
                     </div>
                 </div>
             </div>
@@ -127,7 +137,7 @@
                     <span class="stock in-stock">5 in stock</span>
                     <div class="product-bottom">
                         <span class="price">₱2,200</span>
-                        <button class="btn-primary add-to-cart">ADD TO CART</button>
+                        <button class="btn-primary add-to-cart">PLACE ORDER</button>
                     </div>
                 </div>
             </div>
@@ -136,16 +146,16 @@
             <div class="product-card" data-category="fresh">
                 <div class="product-img-wrapper">
                     <span class="tag tag-luxury">LUXURY</span>
-                    <img src="images/IMG_8630.JPG" alt="Sunflower & Wildflower Mix">
+                    <img src="images/IMG_8630.JPG" alt="Luxury Korean Style">
                 </div>
                 <div class="product-info">
                     <span class="category">FRESH BOUQUET</span>
-                    <h4>Sunflower & Wildflower Mix</h4>
-                    <p class="desc">Cheerful sunflowers paired with seasonal wildflowers and greenery.</p>
+                    <h4>Luxury Korean Style</h4>
+                    <p class="desc">A lavish mix of pink, yellow, and purple blooms with eucalyptus, wrapped in sophisticated frosted pink paper.</p>
                     <span class="stock in-stock">20 in stock</span>
                     <div class="product-bottom">
                         <span class="price">₱1,200</span>
-                        <button class="btn-primary add-to-cart">ADD TO CART</button>
+                        <button class="btn-primary add-to-cart">PLACE ORDER</button>
                     </div>
                 </div>
             </div>
@@ -163,7 +173,7 @@
                     <span class="stock low-stock">Only 3 left</span>
                     <div class="product-bottom">
                         <span class="price">₱3,500</span>
-                        <button class="btn-primary add-to-cart">ADD TO CART</button>
+                        <button class="btn-primary add-to-cart">PLACE ORDER</button>
                     </div>
                 </div>
             </div>
@@ -180,7 +190,7 @@
                     <span class="stock in-stock">8 in stock</span>
                     <div class="product-bottom">
                         <span class="price">₱2,800</span>
-                        <button class="btn-primary add-to-cart">ADD TO CART</button>
+                        <button class="btn-primary add-to-cart">PLACE ORDER</button>
                     </div>
                 </div>
             </div>
@@ -197,7 +207,7 @@
                     <span class="stock in-stock">15 in stock</span>
                     <div class="product-bottom">
                         <span class="price">₱980</span>
-                        <button class="btn-primary add-to-cart">ADD TO CART</button>
+                        <button class="btn-primary add-to-cart">PLACE ORDER</button>
                     </div>
                 </div>
             </div>
@@ -215,7 +225,7 @@
                     <span class="stock in-stock">4 in stock</span>
                     <div class="product-bottom">
                         <span class="price">₱3,200</span>
-                        <button class="btn-primary add-to-cart">ADD TO CART</button>
+                        <button class="btn-primary add-to-cart">PLACE ORDER</button>
                     </div>
                 </div>
             </div>
@@ -233,24 +243,24 @@
                     <span class="stock low-stock">Only 2 left</span>
                     <div class="product-bottom">
                         <span class="price">₱4,800</span>
-                        <button class="btn-primary add-to-cart">ADD TO CART</button>
+                        <button class="btn-primary add-to-cart">PLACE ORDER</button>
                     </div>
                 </div>
             </div>
 
             <!-- Product Card 9 -->
-            <div class="product-card" data-category="dried">
+            <div class="product-card" data-category="Fresh Korean Basket">
                 <div class="product-img-wrapper">
-                    <img src="images/IMG_8643.JPG" alt="Autumn Harvest Wreath">
+                    <img src="images/IMG_8643.JPG" alt="Korean Basket">
                 </div>
                 <div class="product-info">
-                    <span class="category">DRIED BOUQUET</span>
-                    <h4>Autumn Harvest Wreath</h4>
+                    <span class="category">Fresh Korean Basket</span>
+                    <h4>Korean Basket</h4>
                     <p class="desc">Dried autumn botanicals including protea, cotton, and seed pods on a natural base.</p>
                     <span class="stock out-of-stock">Out of Stock</span>
                     <div class="product-bottom">
                         <span class="price">₱1,600</span>
-                        <button class="btn-sold-out" disabled>SOLD OUT</button>
+                        <button class="btn-sold-out" disabled>PLACE ORDER</button>
                     </div>
                 </div>
             </div>
@@ -267,7 +277,7 @@
                     <span class="stock in-stock">10 in stock</span>
                     <div class="product-bottom">
                         <span class="price">₱1,400</span>
-                        <button class="btn-primary add-to-cart">ADD TO CART</button>
+                        <button class="btn-primary add-to-cart">PLACE ORDER</button>
                     </div>
                 </div>
             </div>
@@ -434,7 +444,7 @@
         
         <div class="container">
             <div class="footer-bottom">
-                <p>&copy; 2026 KDesigns Blooms & Styles. All rights reserved.</p>
+                <p>&copy; <?= date('Y'); ?> KDesigns Blooms & Styles. All rights reserved.</p>
                 <p class="italic-serif">Turning flowers into timeless memories.</p>
             </div>
         </div>
