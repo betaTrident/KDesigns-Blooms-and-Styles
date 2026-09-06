@@ -49,7 +49,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_logout'])) {
     </script>
 </head>
 <!-- Background image matching the hero section -->
-<body class="relative h-screen w-full bg-cover bg-center font-sans" style="background-image: url('https://images.unsplash.com/photo-1579727027552-9442a8656ee4?ixlib=rb-4.0.3&auto=format&fit=crop&w=1920&q=80');">
+<body class="relative h-screen w-full bg-cover bg-center font-sans" style="background-image: url('images/IMG_8620.JPG');">
 
     <!-- Dark transparent overlay -->
     <div class="absolute inset-0 bg-black/70 z-0"></div>

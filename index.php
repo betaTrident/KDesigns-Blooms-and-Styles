@@ -1,7 +1,8 @@
 <?php
-// Initialize session management to handle login state[cite: 1]
+// Initialize session management to handle login state
 session_start();
 $is_logged_in = isset($_SESSION['user_email']);
+$user_name = $_SESSION['user_name'] ?? 'Maja'; // Fallback to Maja for demo purposes
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -35,12 +36,12 @@ $is_logged_in = isset($_SESSION['user_email']);
             </ul>
             <div class="nav-actions">
                 <?php if ($is_logged_in): ?>
-                    <!-- Apply htmlspecialchars on any output rendered as HTML to prevent XSS[cite: 1] -->
-                    <a href="logout.php" class="btn-login">LOG OUT (<?= htmlspecialchars($_SESSION['user_email']); ?>)</a>
+                    <span class="nav-greeting">Hi, <?= htmlspecialchars($user_name); ?></span>
+                    <a href="orders.php" class="btn-order"><i class="fa-solid fa-clipboard-list"></i> ORDERS</a>
+                    <a href="logout.php" class="btn-login">LOG OUT</a>
                 <?php else: ?>
                     <a href="login.php" class="btn-login">LOG IN</a>
                 <?php endif; ?>
-                <a href="#" class="btn-cart"><i class="fa-solid fa-cart-shopping"></i> CART</a>
             </div>
         </div>
     </nav>
@@ -110,16 +111,16 @@ $is_logged_in = isset($_SESSION['user_email']);
             <div class="product-card" data-category="fresh">
                 <div class="product-img-wrapper">
                     <span class="tag tag-bestseller">BESTSELLER</span>
-                    <img src="images/IMG_8603.JPG" alt="Classic KDesigns">
+                    <img src="images/IMG_8603.JPG" alt="Crimson Romance Bouquet">
                 </div>
                 <div class="product-info">
                     <span class="category">FRESH BOUQUET</span>
-                    <h4>Classic KDesigns</h4>
-                    <p class="desc">Crisp white blooms with baby's breath and eucalyptus, elegantly wrapped in cream and frosted paper.</p>
+                    <h4>Crimson Romance Bouquet</h4>
+                    <p class="desc">Lush red roses with baby's breath and eucalyptus, hand-tied with silk ribbon.</p>
                     <span class="stock in-stock">12 in stock</span>
                     <div class="product-bottom">
-                        <span class="price">₱2,000</span>
-                        <button class="btn-primary add-to-cart">PLACE ORDER</button>
+                        <span class="price">₱1,850</span>
+                        <a href="orderform.php?product=Crimson%20Romance%20Bouquet&price=1850" class="btn-primary add-to-cart">PLACE ORDER</a>
                     </div>
                 </div>
             </div>
@@ -137,7 +138,7 @@ $is_logged_in = isset($_SESSION['user_email']);
                     <span class="stock in-stock">5 in stock</span>
                     <div class="product-bottom">
                         <span class="price">₱2,200</span>
-                        <button class="btn-primary add-to-cart">PLACE ORDER</button>
+                        <a href="orderform.php?product=Pastel%20Peony%20Bouquet&price=2200" class="btn-primary add-to-cart">PLACE ORDER</a>
                     </div>
                 </div>
             </div>
@@ -145,17 +146,16 @@ $is_logged_in = isset($_SESSION['user_email']);
             <!-- Product Card 3 -->
             <div class="product-card" data-category="fresh">
                 <div class="product-img-wrapper">
-                    <span class="tag tag-luxury">LUXURY</span>
-                    <img src="images/IMG_8630.JPG" alt="Luxury Korean Style">
+                    <img src="images/IMG_8630.JPG" alt="Sunflower & Wildflower Mix">
                 </div>
                 <div class="product-info">
                     <span class="category">FRESH BOUQUET</span>
-                    <h4>Luxury Korean Style</h4>
-                    <p class="desc">A lavish mix of pink, yellow, and purple blooms with eucalyptus, wrapped in sophisticated frosted pink paper.</p>
+                    <h4>Sunflower & Wildflower Mix</h4>
+                    <p class="desc">Cheerful sunflowers paired with seasonal wildflowers and greenery.</p>
                     <span class="stock in-stock">20 in stock</span>
                     <div class="product-bottom">
                         <span class="price">₱1,200</span>
-                        <button class="btn-primary add-to-cart">PLACE ORDER</button>
+                        <a href="orderform.php?product=Sunflower%20%26%20Wildflower%20Mix&price=1200" class="btn-primary add-to-cart">PLACE ORDER</a>
                     </div>
                 </div>
             </div>
@@ -173,7 +173,7 @@ $is_logged_in = isset($_SESSION['user_email']);
                     <span class="stock low-stock">Only 3 left</span>
                     <div class="product-bottom">
                         <span class="price">₱3,500</span>
-                        <button class="btn-primary add-to-cart">PLACE ORDER</button>
+                        <a href="orderform.php?product=Orchid%20Elegance%20Vase&price=3500" class="btn-primary add-to-cart">PLACE ORDER</a>
                     </div>
                 </div>
             </div>
@@ -190,7 +190,7 @@ $is_logged_in = isset($_SESSION['user_email']);
                     <span class="stock in-stock">8 in stock</span>
                     <div class="product-bottom">
                         <span class="price">₱2,800</span>
-                        <button class="btn-primary add-to-cart">PLACE ORDER</button>
+                        <a href="orderform.php?product=Garden%20Table%20Centerpiece&price=2800" class="btn-primary add-to-cart">PLACE ORDER</a>
                     </div>
                 </div>
             </div>
@@ -207,7 +207,7 @@ $is_logged_in = isset($_SESSION['user_email']);
                     <span class="stock in-stock">15 in stock</span>
                     <div class="product-bottom">
                         <span class="price">₱980</span>
-                        <button class="btn-primary add-to-cart">PLACE ORDER</button>
+                        <a href="orderform.php?product=Lavender%20Dreams%20Bundle&price=980" class="btn-primary add-to-cart">PLACE ORDER</a>
                     </div>
                 </div>
             </div>
@@ -225,7 +225,7 @@ $is_logged_in = isset($_SESSION['user_email']);
                     <span class="stock in-stock">4 in stock</span>
                     <div class="product-bottom">
                         <span class="price">₱3,200</span>
-                        <button class="btn-primary add-to-cart">PLACE ORDER</button>
+                        <a href="orderform.php?product=Tropical%20Bloom%20Arrangement&price=3200" class="btn-primary add-to-cart">PLACE ORDER</a>
                     </div>
                 </div>
             </div>
@@ -243,24 +243,24 @@ $is_logged_in = isset($_SESSION['user_email']);
                     <span class="stock low-stock">Only 2 left</span>
                     <div class="product-bottom">
                         <span class="price">₱4,800</span>
-                        <button class="btn-primary add-to-cart">PLACE ORDER</button>
+                        <a href="orderform.php?product=Bridal%20White%20Cascade&price=4800" class="btn-primary add-to-cart">PLACE ORDER</a>
                     </div>
                 </div>
             </div>
 
             <!-- Product Card 9 -->
-            <div class="product-card" data-category="Fresh Korean Basket">
+            <div class="product-card" data-category="dried">
                 <div class="product-img-wrapper">
-                    <img src="images/IMG_8643.JPG" alt="Korean Basket">
+                    <img src="images/IMG_8643.JPG" alt="Autumn Harvest Wreath">
                 </div>
                 <div class="product-info">
-                    <span class="category">Fresh Korean Basket</span>
-                    <h4>Korean Basket</h4>
+                    <span class="category">DRIED BOUQUET</span>
+                    <h4>Autumn Harvest Wreath</h4>
                     <p class="desc">Dried autumn botanicals including protea, cotton, and seed pods on a natural base.</p>
                     <span class="stock out-of-stock">Out of Stock</span>
                     <div class="product-bottom">
                         <span class="price">₱1,600</span>
-                        <button class="btn-sold-out" disabled>PLACE ORDER</button>
+                        <button class="btn-sold-out" disabled>SOLD OUT</button>
                     </div>
                 </div>
             </div>
@@ -277,7 +277,7 @@ $is_logged_in = isset($_SESSION['user_email']);
                     <span class="stock in-stock">10 in stock</span>
                     <div class="product-bottom">
                         <span class="price">₱1,400</span>
-                        <button class="btn-primary add-to-cart">PLACE ORDER</button>
+                        <a href="orderform.php?product=Bloom%20Arrangement%20No.%2010&price=1400" class="btn-primary add-to-cart">PLACE ORDER</a>
                     </div>
                 </div>
             </div>
@@ -294,7 +294,7 @@ $is_logged_in = isset($_SESSION['user_email']);
                     <span class="stock in-stock">10 in stock</span>
                     <div class="product-bottom">
                         <span class="price">₱1,400</span>
-                        <button class="btn-primary add-to-cart">ADD TO CART</button>
+                        <a href="orderform.php?product=Bloom%20Arrangement%20No.%2011&price=1400" class="btn-primary add-to-cart">PLACE ORDER</a>
                     </div>
                 </div>
             </div>
@@ -311,7 +311,7 @@ $is_logged_in = isset($_SESSION['user_email']);
                     <span class="stock in-stock">10 in stock</span>
                     <div class="product-bottom">
                         <span class="price">₱1,400</span>
-                        <button class="btn-primary add-to-cart">ADD TO CART</button>
+                        <a href="orderform.php?product=Bloom%20Arrangement%20No.%2012&price=1400" class="btn-primary add-to-cart">PLACE ORDER</a>
                     </div>
                 </div>
             </div>
