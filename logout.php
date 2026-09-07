@@ -1,14 +1,43 @@
 <?php
-// Initialize session management
-session_start();
+declare(strict_types=1);
+require_once __DIR__ . '/config/env.php';
+require_once __DIR__ . '/config/session.php';
+require_once __DIR__ . '/config/security.php';
 
-// Check if the user confirmed the logout via POST
+secure_session_start();
+
+// ── AUTHENTICATION GUARD ─────────────────────────────────────────────────────
+if (!isset($_SESSION['user_email'])) {
+    header('Location: login.php');
+    exit;
+}
+
+// ── SESSION IDLE TIMEOUT ─────────────────────────────────────────────────────
+check_session_timeout(1800);
+
+// ── LOGOUT (POST-only, CSRF-protected) ───────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_logout'])) {
-    // Unset all session variables and destroy the session
+    enforce_csrf();
+
+    // 1. Wipe all session data
     $_SESSION = [];
+
+    // 2. Explicitly delete the session cookie from the browser
+    if (ini_get('session.use_cookies')) {
+        $params = session_get_cookie_params();
+        setcookie(
+            session_name(), '',
+            time() - 42000,
+            $params['path'],
+            $params['domain'],
+            $params['secure'],
+            $params['httponly']
+        );
+    }
+
+    // 3. Destroy server-side session record
     session_destroy();
-    
-    // Redirect to the home page after successful logout
+
     header('Location: index.php');
     exit;
 }
@@ -18,7 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_logout'])) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Log Out - KDesigns Blooms & Styles</title>
+    <title>Log Out - KDesigns Blooms &amp; Styles</title>
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -62,7 +91,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_logout'])) {
             <!-- Header -->
             <div class="bg-kdesigns-burgundy px-8 pt-8 pb-6">
                 <p class="text-[10px] tracking-[0.15em] font-semibold text-white/60 uppercase mb-2">
-                    KDesigns Blooms & Styles
+                    KDesigns Blooms &amp; Styles
                 </p>
                 <h2 class="text-3xl font-serif text-white font-bold">Log Out</h2>
             </div>
@@ -73,14 +102,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_logout'])) {
                     Are you sure you want to log out of your account?
                 </p>
                 
+                <!-- CSRF-protected POST logout form -->
                 <form action="" method="POST" class="flex gap-4">
+                    <?= csrf_field() ?>
+
                     <!-- Cancel Button (Redirects back to home without logging out) -->
-                    <a href="index.php" class="w-1/2 flex items-center justify-center text-center py-3 text-[11px] font-bold text-kdesigns-burgundy border border-kdesigns-inputBorder rounded-sm tracking-wider hover:bg-gray-50 transition cursor-pointer">
+                    <a href="index.php"
+                       class="w-1/2 flex items-center justify-center text-center py-3 text-[11px] font-bold text-kdesigns-burgundy border border-kdesigns-inputBorder rounded-sm tracking-wider hover:bg-gray-50 transition cursor-pointer">
                         CANCEL
                     </a>
                     
                     <!-- Submit Button (Triggers the POST request to destroy the session) -->
-                    <button type="submit" name="confirm_logout" class="w-1/2 bg-kdesigns-burgundy text-white font-bold py-3 rounded-sm text-[11px] tracking-wider hover:bg-opacity-90 transition-opacity">
+                    <button type="submit" name="confirm_logout" id="logout-confirm-btn"
+                            class="w-1/2 bg-kdesigns-burgundy text-white font-bold py-3 rounded-sm text-[11px] tracking-wider hover:bg-opacity-90 transition-opacity">
                         YES, LOG OUT
                     </button>
                 </form>

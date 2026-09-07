@@ -1,133 +1,170 @@
 <?php
-session_start();
+declare(strict_types=1);
+require_once __DIR__ . '/config/env.php';
+require_once __DIR__ . '/config/session.php';
+require_once __DIR__ . '/config/security.php';
 
-// Check if the customer is logged in; if not, redirect to login page
+secure_session_start();
+
+// ── AUTHENTICATION GUARD ──────────────────────────────────────────────────────
 if (!isset($_SESSION['user_email'])) {
     header('Location: login.php');
     exit;
 }
 
-// Capture product details passed from the catalog URL
-$product_name = $_GET['product'] ?? 'Pastel Peony Bouquet';
-$product_price = $_GET['price'] ?? '2200';
-$formatted_price = '₱' . number_format((float)$product_price);
+// ── SESSION IDLE TIMEOUT ──────────────────────────────────────────────────────
+check_session_timeout(1800);
+
+// ── SERVER-SIDE PRODUCT CATALOG WHITELIST (IDOR Prevention) ──────────────────
+// Price is NEVER taken from user input. It is sourced from this server-side map.
+const PRODUCT_CATALOG = [
+    'Crimson Romance Bouquet'    => ['price' => 1850,  'img' => 'images/IMG_8603.JPG'],
+    'Pastel Peony Bouquet'       => ['price' => 2200,  'img' => 'images/IMG_8597.JPG'],
+    'Sunflower & Wildflower Mix' => ['price' => 1200,  'img' => 'images/IMG_8630.JPG'],
+    'Orchid Elegance Vase'       => ['price' => 3500,  'img' => 'images/IMG_8618.JPG'],
+    'Garden Table Centerpiece'   => ['price' => 2800,  'img' => 'images/IMG_8586.JPG'],
+    'Lavender Dreams Bundle'     => ['price' => 980,   'img' => 'images/IMG_8587.JPG'],
+    'Tropical Bloom Arrangement' => ['price' => 3200,  'img' => 'images/IMG_8564.JPG'],
+    'Bridal White Cascade'       => ['price' => 4800,  'img' => 'images/IMG_8607.JPG'],
+    'Bloom Arrangement No. 10'   => ['price' => 1400,  'img' => 'images/IMG_8635.JPG'],
+    'Bloom Arrangement No. 11'   => ['price' => 1400,  'img' => 'images/IMG_8606.JPG'],
+    'Bloom Arrangement No. 12'   => ['price' => 1400,  'img' => 'images/IMG_8582.JPG'],
+];
+
+// Validate product name against whitelist — reject anything not in the catalog
+$product_name = $_GET['product'] ?? '';
+if (!array_key_exists($product_name, PRODUCT_CATALOG)) {
+    // Unknown or tampered product — redirect silently
+    header('Location: index.php#catalog');
+    exit;
+}
+
+// Price is always sourced from the server — never from GET/POST
+$product_price   = PRODUCT_CATALOG[$product_name]['price'];
+$product_img_default = PRODUCT_CATALOG[$product_name]['img'];
+$formatted_price = '₱' . number_format($product_price);
+
+// Allowed payment methods whitelist
+const ALLOWED_PAYMENTS = ['Pay at Shop', 'GCash', 'BDO', 'BPI'];
+
+// Allowed fulfillment methods whitelist
+const ALLOWED_FULFILLMENTS = ['pickup', 'delivery'];
 
 $errors = [];
-$step = $_SESSION['order_step'] ?? 'form'; // 'form', 'payment', 'ereceipt', 'success'
+$step   = $_SESSION['order_step'] ?? 'form';
 
 // Initialize user orders session array if it doesn't exist
 if (!isset($_SESSION['user_orders'])) {
     $_SESSION['user_orders'] = [];
 }
 
-// Handle form submissions across steps
+// ── HANDLE FORM SUBMISSIONS ───────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Enforce CSRF on every POST
+    enforce_csrf();
+
     $action = $_POST['action'] ?? '';
 
     if ($action === 'save_delivery') {
         $_SESSION['delivery_receiver'] = trim($_POST['receiver_name'] ?? '');
-        $_SESSION['delivery_contact'] = trim($_POST['receiver_contact'] ?? '');
+        $_SESSION['delivery_contact']  = trim($_POST['receiver_contact'] ?? '');
         $_SESSION['delivery_location'] = trim($_POST['delivery_location'] ?? '');
         $_SESSION['fulfillment_method'] = 'delivery';
-    } 
-    elseif ($action === 'proceed_to_payment') {
-        $_SESSION['order_name'] = trim($_POST['name'] ?? '');
-        $_SESSION['order_contact'] = trim($_POST['contact'] ?? '');
-        $_SESSION['order_date'] = trim($_POST['date'] ?? '');
-        $_SESSION['order_time'] = trim($_POST['time'] ?? '');
-        $_SESSION['order_fulfillment'] = trim($_POST['fulfillment'] ?? 'pickup');
 
-        if (empty($_SESSION['order_name'])) { $errors[] = "Name is required."; }
-        if (empty($_SESSION['order_contact'])) { $errors[] = "Contact number is required."; }
-        if (empty($_SESSION['order_date'])) { $errors[] = "Date needed is required."; }
+    } elseif ($action === 'proceed_to_payment') {
+        $raw_name        = trim($_POST['name']        ?? '');
+        $raw_contact     = trim($_POST['contact']     ?? '');
+        $raw_date        = trim($_POST['date']        ?? '');
+        $raw_time        = trim($_POST['time']        ?? '');
+        $raw_fulfillment = trim($_POST['fulfillment'] ?? 'pickup');
+
+        // Validate fulfillment method against whitelist
+        if (!in_array($raw_fulfillment, ALLOWED_FULFILLMENTS, true)) {
+            $raw_fulfillment = 'pickup';
+        }
+
+        if (empty($raw_name))    { $errors[] = 'Name is required.'; }
+        if (empty($raw_contact)) { $errors[] = 'Contact number is required.'; }
+        if (empty($raw_date))    { $errors[] = 'Date needed is required.'; }
+
+        // Validate date is not in the past
+        if (!empty($raw_date) && strtotime($raw_date) < strtotime('today')) {
+            $errors[] = 'Date needed cannot be in the past.';
+        }
 
         if (empty($errors)) {
-            $_SESSION['order_step'] = 'payment';
+            $_SESSION['order_name']        = $raw_name;
+            $_SESSION['order_contact']     = $raw_contact;
+            $_SESSION['order_date']        = $raw_date;
+            $_SESSION['order_time']        = $raw_time;
+            $_SESSION['order_fulfillment'] = $raw_fulfillment;
+            $_SESSION['order_step']        = 'payment';
             $step = 'payment';
         }
-    }
-    elseif ($action === 'select_payment') {
+
+    } elseif ($action === 'select_payment') {
         $payment_method = $_POST['payment_method'] ?? 'Pay at Shop';
+
+        // Validate payment method against whitelist
+        if (!in_array($payment_method, ALLOWED_PAYMENTS, true)) {
+            $payment_method = 'Pay at Shop';
+        }
         $_SESSION['payment_method'] = $payment_method;
 
-        // Image mapping for order tracker
-        $img_map = [
-            'Crimson Romance Bouquet' => 'images/IMG_8603.JPG',
-            'Pastel Peony Bouquet' => 'images/IMG_8597.JPG',
-            'Sunflower & Wildflower Mix' => 'images/IMG_8630.JPG',
-            'Orchid Elegance Vase' => 'images/IMG_8618.JPG',
-            'Garden Table Centerpiece' => 'images/IMG_8586.JPG',
-            'Lavender Dreams Bundle' => 'images/IMG_8587.JPG',
-            'Tropical Bloom Arrangement' => 'images/IMG_8564.JPG',
-            'Bridal White Cascade' => 'images/IMG_8607.JPG',
-            'Bloom Arrangement No. 10' => 'images/IMG_8635.JPG'
-        ];
-        $product_img = $img_map[$product_name] ?? 'images/IMG_8597.JPG';
+        // Image is sourced from the server-side catalog — not from user input
+        $product_img = PRODUCT_CATALOG[$product_name]['img'] ?? 'images/IMG_8597.JPG';
 
         if ($payment_method === 'Pay at Shop') {
-            // Finalize order directly and show success popup
             $new_order = [
-                'id' => 'KDB-' . rand(200000, 299999),
+                'id'           => 'KDB-' . random_int(200000, 299999),
                 'product_name' => $product_name,
-                'price' => $formatted_price,
-                'fulfillment' => ucfirst($_SESSION['order_fulfillment'] ?? 'pickup'),
-                'date_needed' => $_SESSION['order_date'] ?? '',
-                'time_needed' => $_SESSION['order_time'] ?? '',
-                'image' => $product_img,
-                'status' => 'PENDING',
-                'placed_date' => date('M j, Y')
+                'price'        => $formatted_price,
+                'fulfillment'  => ucfirst($_SESSION['order_fulfillment'] ?? 'pickup'),
+                'date_needed'  => $_SESSION['order_date'] ?? '',
+                'time_needed'  => $_SESSION['order_time'] ?? '',
+                'image'        => $product_img,
+                'status'       => 'PENDING',
+                'placed_date'  => date('M j, Y')
             ];
             array_unshift($_SESSION['user_orders'], $new_order);
             $_SESSION['order_step'] = 'success';
             $step = 'success';
         } else {
-            // Show E-Receipt for online payments (GCash, BDO, BPI)
-            $_SESSION['receipt_ref'] = 'KD' . rand(10000000, 99999999);
-            $_SESSION['order_step'] = 'ereceipt';
+            $_SESSION['receipt_ref']  = 'KD' . random_int(10000000, 99999999);
+            $_SESSION['order_step']   = 'ereceipt';
             $step = 'ereceipt';
         }
-    }
-    elseif ($action === 'finalize_ereceipt') {
-        $img_map = [
-            'Crimson Romance Bouquet' => 'images/IMG_8603.JPG',
-            'Pastel Peony Bouquet' => 'images/IMG_8597.JPG',
-            'Sunflower & Wildflower Mix' => 'images/IMG_8630.JPG',
-            'Orchid Elegance Vase' => 'images/IMG_8618.JPG',
-            'Garden Table Centerpiece' => 'images/IMG_8586.JPG',
-            'Lavender Dreams Bundle' => 'images/IMG_8587.JPG',
-            'Tropical Bloom Arrangement' => 'images/IMG_8564.JPG',
-            'Bridal White Cascade' => 'images/IMG_8607.JPG',
-            'Bloom Arrangement No. 10' => 'images/IMG_8635.JPG'
-        ];
-        $product_img = $img_map[$product_name] ?? 'images/IMG_8597.JPG';
+
+    } elseif ($action === 'finalize_ereceipt') {
+        $product_img = PRODUCT_CATALOG[$product_name]['img'] ?? 'images/IMG_8597.JPG';
 
         $new_order = [
-            'id' => 'KDB-' . rand(200000, 299999),
+            'id'           => 'KDB-' . random_int(200000, 299999),
             'product_name' => $product_name,
-            'price' => $formatted_price,
-            'fulfillment' => ucfirst($_SESSION['order_fulfillment'] ?? 'pickup'),
-            'date_needed' => $_SESSION['order_date'] ?? '',
-            'time_needed' => $_SESSION['order_time'] ?? '',
-            'image' => $product_img,
-            'status' => 'PENDING',
-            'placed_date' => date('M j, Y')
+            'price'        => $formatted_price,
+            'fulfillment'  => ucfirst($_SESSION['order_fulfillment'] ?? 'pickup'),
+            'date_needed'  => $_SESSION['order_date'] ?? '',
+            'time_needed'  => $_SESSION['order_time'] ?? '',
+            'image'        => $product_img,
+            'status'       => 'PENDING',
+            'placed_date'  => date('M j, Y')
         ];
         array_unshift($_SESSION['user_orders'], $new_order);
         $_SESSION['order_step'] = 'success';
         $step = 'success';
-    }
-    elseif ($action === 'back_to_form') {
+
+    } elseif ($action === 'back_to_form') {
         $_SESSION['order_step'] = 'form';
         $step = 'form';
-    }
-    elseif ($action === 'back_to_payment') {
+
+    } elseif ($action === 'back_to_payment') {
         $_SESSION['order_step'] = 'payment';
         $step = 'payment';
     }
 }
 
-$fulfillment_method = $_SESSION['order_fulfillment'] ?? $_SESSION['fulfillment_method'] ?? 'pickup';
-$has_delivery_info = !empty($_SESSION['delivery_location']);
+$fulfillment_method  = $_SESSION['order_fulfillment'] ?? $_SESSION['fulfillment_method'] ?? 'pickup';
+$has_delivery_info   = !empty($_SESSION['delivery_location']);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -225,6 +262,7 @@ $has_delivery_info = !empty($_SESSION['delivery_location']);
                     <?php endif; ?>
 
                     <form action="" method="POST">
+                        <?= csrf_field() ?>
                         <input type="hidden" name="action" value="proceed_to_payment">
                         
                         <div class="mb-4">
@@ -259,7 +297,7 @@ $has_delivery_info = !empty($_SESSION['delivery_location']);
 
                         <div class="mb-6">
                             <label class="block text-[11px] font-semibold text-kdesigns-textMuted uppercase tracking-wider mb-2">FULFILLMENT METHOD</label>
-                            <input type="hidden" name="fulfillment" id="fulfillmentInput" value="<?= $fulfillment_method; ?>">
+                            <input type="hidden" name="fulfillment" id="fulfillmentInput" value="<?= e($fulfillment_method); ?>">
                             
                             <div class="grid grid-cols-2 gap-3">
                                 <button type="button" id="pickupBtn" onclick="setFulfillment('pickup')" class="py-3 px-4 rounded-sm border text-xs font-bold tracking-wider flex items-center justify-center gap-2 transition <?= $fulfillment_method === 'pickup' ? 'bg-kdesigns-burgundy text-white border-kdesigns-burgundy' : 'bg-white text-gray-800 border-kdesigns-inputBorder hover:bg-gray-50'; ?>">
@@ -331,6 +369,7 @@ $has_delivery_info = !empty($_SESSION['delivery_location']);
                         <h3 class="text-xl font-serif text-white font-bold">Payment Method</h3>
                     </div>
                     <form action="" method="POST">
+                        <?= csrf_field() ?>
                         <input type="hidden" name="action" value="back_to_form">
                         <button type="submit" class="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition"><i class="fa-solid fa-xmark text-sm"></i></button>
                     </form>
@@ -340,6 +379,7 @@ $has_delivery_info = !empty($_SESSION['delivery_location']);
                     <p class="text-xs text-kdesigns-textMuted mb-5">Choose how you'd like to pay for your order.</p>
                     
                     <form action="" method="POST">
+                        <?= csrf_field() ?>
                         <input type="hidden" name="action" value="select_payment">
                         
                         <div class="space-y-3 mb-6">

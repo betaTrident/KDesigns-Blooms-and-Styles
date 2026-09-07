@@ -1,31 +1,72 @@
 <?php
-session_start();
+declare(strict_types=1);
+require_once __DIR__ . '/config/env.php';
+require_once __DIR__ . '/config/session.php';
+require_once __DIR__ . '/config/security.php';
+
+secure_session_start();
+
+// Already logged in — redirect away
+if (isset($_SESSION['user_email'])) {
+    header('Location: index.php');
+    exit;
+}
 
 $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $email = trim($_POST['email'] ?? '');
-    $password = trim($_POST['password'] ?? '');
+    // ── 1. Enforce CSRF ──────────────────────────────────────────────────────
+    enforce_csrf();
 
-    // Check for Admin login credentials
-    if ($email === 'admin@kdesigns.ph' && $password === 'kdesigns2026') {
-        $_SESSION['user_email'] = $email;
-        $_SESSION['user_name'] = 'Admin';
-        header('Location: admin.php');
-        exit;
-    }
-    
-    // Check for Demo Customer credentials
-    elseif ($email === 'customer@kdesigns.ph' && $password === 'bloom123') {
-        $_SESSION['user_email'] = $email;
-        $_SESSION['user_name'] = 'Maja Santos';
-        header('Location: index.php');
-        exit;
-    }
-    
-    // Fallback error check
-    else {
-        $error = "Invalid email address or password.";
+    $email    = trim($_POST['email']    ?? '');
+    $password =      $_POST['password'] ?? '';
+    $ip       = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+
+    // ── 2. Rate-limit check ───────────────────────────────────────────────────
+    if (is_rate_limited($ip, 'login')) {
+        $remaining = ceil(rate_limit_remaining_seconds($ip, 'login') / 60);
+        $error = "Too many failed attempts. Please wait {$remaining} minute(s) before trying again.";
+    } elseif (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL) || empty($password)) {
+        // Generic error — do NOT reveal which field is wrong
+        record_login_failure($ip, 'login');
+        $error = 'Invalid email address or password.';
+    } else {
+        // ── 3. Authenticate against .env-backed hashed credentials ────────────
+        $authenticated = false;
+        $redirect_to   = 'index.php';
+
+        // Admin check
+        if ($email === $_ENV['ADMIN_EMAIL'] && password_verify($password, $_ENV['ADMIN_HASH'])) {
+            $authenticated  = true;
+            $session_name   = $_ENV['ADMIN_NAME'];
+            $session_role   = 'admin';
+            $redirect_to    = 'admin.php';
+        }
+        // Customer check
+        elseif ($email === $_ENV['CUSTOMER_EMAIL'] && password_verify($password, $_ENV['CUSTOMER_HASH'])) {
+            $authenticated  = true;
+            $session_name   = $_ENV['CUSTOMER_NAME'];
+            $session_role   = 'customer';
+            $redirect_to    = 'index.php';
+        }
+
+        if ($authenticated) {
+            // ── 4. Session fixation prevention ───────────────────────────────
+            session_regenerate_id(true);
+
+            $_SESSION['user_email']    = $email;
+            $_SESSION['user_name']     = $session_name;
+            $_SESSION['user_role']     = $session_role;
+            $_SESSION['last_activity'] = time();
+
+            record_login_success($ip, 'login');
+
+            header('Location: ' . $redirect_to);
+            exit;
+        } else {
+            record_login_failure($ip, 'login');
+            $error = 'Invalid email address or password.';
+        }
     }
 }
 ?>
@@ -34,11 +75,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - KDesigns Blooms & Styles</title>
+    <title>Login - KDesigns Blooms &amp; Styles</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+          integrity="sha512-iecdLmaskl7CVkqkXNQ/ZH/XLlvWZOJyj7Yy7tcenmpD1ypASozpmT/E0iPtmFIB46ZmdtAc9eNBvH0H/ZpiBw=="
+          crossorigin="anonymous" referrerpolicy="no-referrer">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -72,7 +115,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         <!-- Header -->
         <div class="bg-kdesigns-burgundy px-8 pt-8 pb-6 text-center">
-            <p class="text-[9px] tracking-[0.2em] font-semibold text-white/70 uppercase mb-1">KDESIGNS BLOOMS & STYLES</p>
+            <p class="text-[9px] tracking-[0.2em] font-semibold text-white/70 uppercase mb-1">KDESIGNS BLOOMS &amp; STYLES</p>
             <h2 class="text-2xl font-serif text-white font-bold">Welcome back</h2>
         </div>
 
@@ -86,32 +129,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="p-8">
             
             <?php if (!empty($error)): ?>
-                <div class="mb-4 p-3 bg-red-100 text-red-700 text-xs rounded border border-red-200 text-center">
-                    <?= htmlspecialchars($error); ?>
+                <div class="mb-4 p-3 bg-red-100 text-red-700 text-xs rounded border border-red-200 text-center" role="alert">
+                    <?= e($error); ?>
                 </div>
             <?php endif; ?>
 
-            <form action="" method="POST">
+            <form action="" method="POST" autocomplete="off" novalidate>
+                <?= csrf_field() ?>
+
                 <div class="mb-4">
-                    <label class="block text-[11px] font-semibold text-kdesigns-textMuted uppercase tracking-wider mb-2">EMAIL ADDRESS</label>
-                    <input type="email" name="email" value="<?= htmlspecialchars($_POST['email'] ?? 'admin@kdesigns.ph'); ?>" required 
+                    <label for="login-email" class="block text-[11px] font-semibold text-kdesigns-textMuted uppercase tracking-wider mb-2">EMAIL ADDRESS</label>
+                    <input type="email" id="login-email" name="email"
+                           value="<?= e($_POST['email'] ?? ''); ?>"
+                           required autocomplete="email"
                            class="w-full px-4 py-3 bg-kdesigns-inputBg border border-kdesigns-inputBorder rounded-sm text-sm text-gray-800 focus:outline-none focus:border-kdesigns-burgundy transition">
                 </div>
 
                 <div class="mb-6">
-                    <label class="block text-[11px] font-semibold text-kdesigns-textMuted uppercase tracking-wider mb-2">PASSWORD</label>
-                    <input type="password" name="password" placeholder="Your password" required 
+                    <label for="login-password" class="block text-[11px] font-semibold text-kdesigns-textMuted uppercase tracking-wider mb-2">PASSWORD</label>
+                    <input type="password" id="login-password" name="password"
+                           placeholder="Your password" required autocomplete="current-password"
                            class="w-full px-4 py-3 bg-kdesigns-inputBg border border-kdesigns-inputBorder rounded-sm text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:border-kdesigns-burgundy transition">
                 </div>
 
-                <button type="submit" class="w-full bg-kdesigns-burgundy text-white font-bold py-3.5 rounded-sm text-[11px] tracking-widest uppercase hover:bg-opacity-90 transition-opacity mb-4">
+                <button type="submit" id="login-submit"
+                        class="w-full bg-kdesigns-burgundy text-white font-bold py-3.5 rounded-sm text-[11px] tracking-widest uppercase hover:bg-opacity-90 transition-opacity mb-4">
                     LOG IN
                 </button>
             </form>
-
-            <div class="text-center text-[11px] text-kdesigns-textMuted">
-                
-            </div>
         </div>
     </div>
 </body>

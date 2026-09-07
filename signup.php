@@ -1,43 +1,71 @@
 <?php
-session_start();
+declare(strict_types=1);
+require_once __DIR__ . '/config/env.php';
+require_once __DIR__ . '/config/session.php';
+require_once __DIR__ . '/config/security.php';
+
+secure_session_start();
+
+// Already logged in — redirect away
+if (isset($_SESSION['user_email'])) {
+    header('Location: index.php');
+    exit;
+}
 
 $errors = [];
 
-// Check if the form was submitted using POST[cite: 1]
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Collect and trim raw input to remove leading/trailing whitespace[cite: 1]
-    $name = trim($_POST['name'] ?? '');
-    $email = trim($_POST['email'] ?? '');
-    $password = $_POST['password'] ?? '';
+    // ── 1. Enforce CSRF ──────────────────────────────────────────────────────
+    enforce_csrf();
 
-    // Validate each field and collect errors[cite: 1]
+    $name     = trim($_POST['name']     ?? '');
+    $email    = trim($_POST['email']    ?? '');
+    $password =      $_POST['password'] ?? '';
+
+    // ── 2. Validate inputs ───────────────────────────────────────────────────
     if (empty($name)) {
-        $errors[] = "Full Name is required.";
+        $errors[] = 'Full Name is required.';
+    } elseif (strlen($name) > 100) {
+        $errors[] = 'Full Name must be 100 characters or fewer.';
     }
 
     if (empty($email)) {
-        $errors[] = "Email is required.";
-    // Validate email format[cite: 1]
+        $errors[] = 'Email is required.';
     } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        $errors[] = "Enter a valid email address.";
+        $errors[] = 'Enter a valid email address.';
+    } elseif (strlen($email) > 254) {
+        $errors[] = 'Email address is too long.';
     }
 
     if (empty($password)) {
-        $errors[] = "Password is required.";
-    } elseif (strlen($password) < 6) {
-        $errors[] = "Password must be at least 6 characters.";
+        $errors[] = 'Password is required.';
+    } elseif (strlen($password) < 8) {
+        $errors[] = 'Password must be at least 8 characters.';
+    } elseif (!preg_match('/[A-Za-z]/', $password) || !preg_match('/[0-9]/', $password)) {
+        $errors[] = 'Password must contain at least one letter and one number.';
     }
 
-    // Sanitize only once validation passes[cite: 1]
+    // ── 3. If valid — hash password and create session ───────────────────────
+    //       NOTE: In production, INSERT into database here using PDO.
+    //       This file-based approach is a temporary placeholder until
+    //       the database is configured (see config/db.php).
     if (empty($errors)) {
-        // Escape special characters to prevent XSS[cite: 1]
-        $name = htmlspecialchars($name);
-        $email = htmlspecialchars($email);
-        
-        // TODO: In a real application, you would hash the password using password_hash() and use PDO prepared statements to INSERT the new user here[cite: 1].
-        
-        // For now, simulate a successful registration
-        $_SESSION['user_email'] = $email;
+        // Hash the password with Argon2id before any storage
+        $password_hash = password_hash($password, PASSWORD_ARGON2ID, [
+            'memory_cost' => 65536,
+            'time_cost'   => 4,
+            'threads'     => 3,
+        ]);
+
+        // TODO: Replace with: $db->prepare('INSERT INTO users ...')->execute(...)
+        // For now, establish an authenticated session
+        session_regenerate_id(true);
+
+        $_SESSION['user_email']    = $email;
+        $_SESSION['user_name']     = $name;
+        $_SESSION['user_role']     = 'customer';
+        $_SESSION['last_activity'] = time();
+
         header('Location: index.php');
         exit;
     }
@@ -48,13 +76,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Create an Account - KDesigns Blooms & Styles</title>
-    <!-- Google Fonts -->
+    <title>Create an Account - KDesigns Blooms &amp; Styles</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
-    
-    <!-- Tailwind CSS (CDN for immediate execution) -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -78,7 +103,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     </script>
 </head>
-<!-- Background image matching your index.php hero section -->
 <body class="relative h-screen w-full bg-cover bg-center font-sans" style="background-image: url('images/IMG_8620.JPG');">
     
     <!-- Dark transparent overlay -->
@@ -97,7 +121,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             <div class="bg-kdesigns-burgundy px-8 pt-8 pb-6">
                 <p class="text-[10px] tracking-[0.15em] font-semibold text-white/60 uppercase mb-2">
-                    KDesigns Blooms & Styles
+                    KDesigns Blooms &amp; Styles
                 </p>
                 <h2 class="text-3xl font-serif text-white font-bold">Create an account</h2>
             </div>
@@ -113,42 +137,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             <div class="px-8 pt-6 pb-8">
                 
-                <!-- Error Display -->
+                <!-- Error Display — XSS-safe output -->
                 <?php if (!empty($errors)): ?>
-                    <div class="mb-4 p-3 bg-red-100 text-red-700 text-sm rounded border border-red-200 text-center">
-                        <?php foreach ($errors as $e) { echo $e . "<br>"; } ?>
+                    <div class="mb-4 p-3 bg-red-100 text-red-700 text-sm rounded border border-red-200 text-center" role="alert">
+                        <?php foreach ($errors as $err): ?>
+                            <?= e($err); ?><br>
+                        <?php endforeach; ?>
                     </div>
                 <?php endif; ?>
 
-                <form action="" method="POST">
+                <form action="" method="POST" autocomplete="off" novalidate>
+                    <?= csrf_field() ?>
+
                     <div class="mb-4">
-                        <label for="name" class="block text-[11px] font-semibold text-kdesigns-textMuted uppercase tracking-wider mb-2">
+                        <label for="signup-name" class="block text-[11px] font-semibold text-kdesigns-textMuted uppercase tracking-wider mb-2">
                             Full Name
                         </label>
-                        <!-- Using htmlspecialchars to output previously entered valid data if form submission fails[cite: 1] -->
-                        <input type="text" id="name" name="name" placeholder="Your name" required 
-                               value="<?= isset($_POST['name']) ? htmlspecialchars($_POST['name']) : '' ?>"
+                        <input type="text" id="signup-name" name="name"
+                               placeholder="Your name" required maxlength="100"
+                               value="<?= e($_POST['name'] ?? ''); ?>"
                                class="w-full px-4 py-3 bg-kdesigns-inputBg border border-kdesigns-inputBorder rounded-sm text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:border-kdesigns-burgundy focus:ring-1 focus:ring-kdesigns-burgundy transition">
                     </div>
 
                     <div class="mb-4">
-                        <label for="email" class="block text-[11px] font-semibold text-kdesigns-textMuted uppercase tracking-wider mb-2">
+                        <label for="signup-email" class="block text-[11px] font-semibold text-kdesigns-textMuted uppercase tracking-wider mb-2">
                             Email Address
                         </label>
-                        <input type="email" id="email" name="email" placeholder="hello@you.com" required 
-                               value="<?= isset($_POST['email']) ? htmlspecialchars($_POST['email']) : '' ?>"
+                        <input type="email" id="signup-email" name="email"
+                               placeholder="hello@you.com" required maxlength="254"
+                               value="<?= e($_POST['email'] ?? ''); ?>"
                                class="w-full px-4 py-3 bg-kdesigns-inputBg border border-kdesigns-inputBorder rounded-sm text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:border-kdesigns-burgundy focus:ring-1 focus:ring-kdesigns-burgundy transition">
                     </div>
 
                     <div class="mb-6">
-                        <label for="password" class="block text-[11px] font-semibold text-kdesigns-textMuted uppercase tracking-wider mb-2">
+                        <label for="signup-password" class="block text-[11px] font-semibold text-kdesigns-textMuted uppercase tracking-wider mb-2">
                             Password
                         </label>
-                        <input type="password" id="password" name="password" placeholder="Min. 6 characters" required minlength="6"
+                        <input type="password" id="signup-password" name="password"
+                               placeholder="Min. 8 characters, letters &amp; numbers" required minlength="8"
+                               autocomplete="new-password"
                                class="w-full px-4 py-3 bg-kdesigns-inputBg border border-kdesigns-inputBorder rounded-sm text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:border-kdesigns-burgundy focus:ring-1 focus:ring-kdesigns-burgundy transition">
                     </div>
 
-                    <button type="submit" class="w-full bg-kdesigns-burgundy text-white font-bold py-3.5 rounded-sm text-sm tracking-wider hover:bg-opacity-90 transition-opacity">
+                    <button type="submit" id="signup-submit"
+                            class="w-full bg-kdesigns-burgundy text-white font-bold py-3.5 rounded-sm text-sm tracking-wider hover:bg-opacity-90 transition-opacity">
                         CREATE ACCOUNT
                     </button>
                 </form>

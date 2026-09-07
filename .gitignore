@@ -1,0 +1,30 @@
+# .gitignore — KDesigns Blooms & Styles
+# ============================================================
+
+# NEVER commit credentials or secrets
+.env
+.env.local
+.env.production
+
+# Config directory contains sensitive files
+config/db.php
+
+# Application storage (logs, rate limits, uploads)
+storage/logs/
+storage/rate_limits/
+storage/uploads/
+
+# Node / build artifacts
+node_modules/
+package-lock.json
+*.lock
+
+# IDE and OS artifacts
+.vscode/
+.idea/
+*.DS_Store
+Thumbs.db
+
+# PHP error logs
+*.log
+php_errors.log
