@@ -10,9 +10,12 @@ function secure_session_start(): void {
         return; // Already started — do nothing
     }
 
-    // Detect whether we're on HTTPS
-    $is_https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-             || (($_SERVER['SERVER_PORT'] ?? 80) == 443);
+    if (function_exists('kd_is_https')) {
+        $is_https = kd_is_https();
+    } else {
+        $is_https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+                 || (($_SERVER['SERVER_PORT'] ?? 80) == 443);
+    }
 
     session_start([
         'cookie_lifetime' => 0,           // Expire on browser close

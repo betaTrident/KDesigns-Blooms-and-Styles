@@ -7,9 +7,19 @@
     const csrfToken = root.getAttribute('data-csrf') || '';
     const productId = root.getAttribute('data-product-id') || '';
     const pickupClasses =
-        'py-3 px-4 rounded-sm border text-xs font-bold tracking-wider flex items-center justify-center gap-2 transition bg-kdesigns-burgundy text-white border-kdesigns-burgundy';
+        'py-3 px-2 sm:px-4 rounded-sm border text-xs font-bold tracking-wider flex items-center justify-center gap-2 transition min-w-0 w-full bg-kdesigns-burgundy text-white border-kdesigns-burgundy';
     const idleClasses =
-        'py-3 px-4 rounded-sm border text-xs font-bold tracking-wider flex items-center justify-center gap-2 transition bg-white text-gray-800 border-kdesigns-inputBorder hover:bg-gray-50';
+        'py-3 px-2 sm:px-4 rounded-sm border text-xs font-bold tracking-wider flex items-center justify-center gap-2 transition min-w-0 w-full bg-white text-gray-800 border-kdesigns-inputBorder hover:bg-gray-50';
+
+    function lockScroll() {
+        document.documentElement.style.overflow = 'hidden';
+        document.body.style.overflow = 'hidden';
+    }
+
+    function unlockScroll() {
+        document.documentElement.style.overflow = '';
+        document.body.style.overflow = '';
+    }
 
     window.setFulfillment = function setFulfillment(method) {
         const input = document.getElementById('fulfillmentInput');
@@ -33,6 +43,7 @@
         const modal = document.getElementById('deliveryModal');
         if (modal) {
             modal.classList.remove('hidden');
+            lockScroll();
         }
     };
 
@@ -40,6 +51,7 @@
         const modal = document.getElementById('deliveryModal');
         if (modal) {
             modal.classList.add('hidden');
+            unlockScroll();
         }
     };
 
@@ -89,4 +101,17 @@
             window.closeDeliveryModal();
         });
     };
+
+    const deliveryModal = document.getElementById('deliveryModal');
+    if (deliveryModal) {
+        deliveryModal.addEventListener('focusin', function (event) {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) {
+                return;
+            }
+            window.setTimeout(function () {
+                target.scrollIntoView({ block: 'center', inline: 'nearest' });
+            }, 250);
+        });
+    }
 })();

@@ -40,12 +40,15 @@ final class Checkout
             throw new InvalidArgumentException('Please complete the order form first.');
         }
 
+        $receiptRef = trim((string) ($_SESSION['receipt_ref'] ?? ''));
+
         return Orders::create([
             'user_id'           => $userId,
             'product_id'        => $productId,
             'qty'               => 1,
             'fulfillment'       => $fulfillment,
             'payment_method'    => $paymentMethod,
+            'receipt_ref'       => $receiptRef !== '' ? $receiptRef : null,
             'customer_name'     => $name,
             'customer_contact'  => $contact,
             'date_needed'       => $dateNeeded,

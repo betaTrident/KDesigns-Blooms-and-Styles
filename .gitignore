@@ -19,6 +19,11 @@ node_modules/
 package-lock.json
 *.lock
 
+# PHP dependencies
+vendor/
+composer.lock
+composer.phar
+
 # IDE and OS artifacts
 .vscode/
 .idea/
@@ -28,3 +33,4 @@ Thumbs.db
 # PHP error logs
 *.log
 php_errors.log
+.phpunit.cache/

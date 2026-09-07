@@ -30,6 +30,29 @@ final class Auth
         return self::mapUserRow($row);
     }
 
+    /** User row without password_hash, or null */
+    public static function findById(int $id): ?array
+    {
+        if ($id < 1) {
+            return null;
+        }
+
+        $stmt = db()->prepare(
+            'SELECT id, name, email, password_hash, role
+             FROM users
+             WHERE id = :id
+             LIMIT 1'
+        );
+        $stmt->execute([':id' => $id]);
+
+        $row = $stmt->fetch();
+        if ($row === false) {
+            return null;
+        }
+
+        return self::mapUserRow($row);
+    }
+
     public static function createCustomer(string $name, string $email, string $password): int
     {
         $hash = password_hash($password, PASSWORD_ARGON2ID, self::HASH_OPTIONS);
@@ -133,10 +156,14 @@ final class Auth
             exit;
         }
 
-        if (!self::isAdmin()) {
+        $userId = self::id();
+        $user = $userId !== null ? self::findById($userId) : null;
+        if ($user === null || ($user['role'] ?? '') !== 'admin') {
             header('Location: index.php');
             exit;
         }
+
+        $_SESSION['user_role'] = (string) $user['role'];
     }
 
     /** @param array<string,mixed> $row */

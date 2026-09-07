@@ -202,4 +202,5 @@ View::render('storefront/orderform', [
     'has_delivery_info'   => !empty($_SESSION['delivery_location']),
     'last_order_code'     => $last_order_code,
     'csrf_token'          => generate_csrf_token(),
+    'blurCatalog'         => array_slice(Catalog::allActive(), 0, 4),
 ]);

@@ -54,6 +54,8 @@ CREATE TABLE IF NOT EXISTS `orders` (
   `user_id`            INT UNSIGNED NOT NULL,
   `fulfillment`        ENUM('pickup', 'delivery') NOT NULL DEFAULT 'pickup',
   `payment_method`     ENUM('Pay at Shop', 'GCash', 'BDO', 'BPI') NOT NULL,
+  `receipt_ref`        VARCHAR(32)  NULL,
+  `payment_received_at` DATETIME    NULL,
   `status`             ENUM('pending', 'processing', 'delivered', 'cancelled') NOT NULL DEFAULT 'pending',
   `date_needed`        DATE         NOT NULL,
   `time_needed`        VARCHAR(32)  NULL,

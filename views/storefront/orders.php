@@ -2,16 +2,16 @@
 declare(strict_types=1);
 ?>
 <?php View::render('partials/head', ['pageTitle' => $pageTitle, 'cssBundle' => $cssBundle]); ?>
-<body class="relative h-screen w-full bg-cover bg-center font-sans overflow-hidden flex justify-end" style="background-image: url('<?= e(kd_image_url('images/IMG_8620.JPG')); ?>');">
+<body class="relative min-h-dvh w-full bg-cover bg-center bg-no-repeat font-sans overflow-x-hidden overflow-y-auto md:overflow-hidden flex justify-end" style="background-image: url('<?= e(kd_image_url('images/IMG_8620.JPG')); ?>');">
 
     <!-- Dark transparent overlay -->
-    <div class="absolute inset-0 bg-black/60 z-0"></div>
+    <div class="fixed inset-0 bg-black/60 z-0"></div>
 
     <!-- Side Drawer Modal -->
-    <div class="relative z-10 w-full max-w-[420px] h-full bg-kdesigns-cream shadow-2xl flex flex-col border-l border-gray-300">
+    <div class="relative z-10 w-full md:max-w-[420px] min-h-dvh md:h-full bg-kdesigns-cream shadow-2xl flex flex-col border-l border-gray-300 min-w-0">
         
         <!-- Header -->
-        <div class="bg-kdesigns-burgundy px-6 py-5 flex items-center justify-between flex-shrink-0">
+        <div class="bg-kdesigns-burgundy px-4 sm:px-6 py-5 flex items-center justify-between flex-shrink-0 gap-3">
             <div>
                 <p class="text-[9px] tracking-[0.15em] font-semibold text-white/70 uppercase">MY ORDERS</p>
                 <h3 class="text-xl font-serif text-white font-bold">Order Tracker</h3>
@@ -22,7 +22,7 @@ declare(strict_types=1);
         </div>
 
         <!-- Content Body -->
-        <div class="flex-1 p-6 overflow-y-auto">
+        <div class="flex-1 p-4 sm:p-6 overflow-y-auto min-h-0">
             <?php if (empty($user_orders)): ?>
                 <div class="h-full flex flex-col items-center justify-center text-center">
                     <div class="text-gray-400 mb-3 text-3xl">
@@ -35,12 +35,12 @@ declare(strict_types=1);
                 <div class="space-y-4">
                     <?php foreach ($user_orders as $order): ?>
                         <div class="bg-white border border-gray-200 rounded-md shadow-sm overflow-hidden">
-                            <div class="p-4 flex gap-4 items-center">
-                                <img src="<?= e($order['image']); ?>" alt="Product" class="w-16 h-16 object-cover rounded-sm border border-gray-100 flex-shrink-0">
+                            <div class="p-4 flex gap-3 items-start">
+                                <img src="<?= e($order['image']); ?>" alt="Product" class="w-16 h-16 object-cover rounded-sm border border-gray-100 shrink-0">
                                 <div class="flex-1 min-w-0">
-                                    <div class="flex items-start justify-between gap-2 mb-1">
-                                        <h4 class="font-serif font-bold text-sm text-gray-900 truncate"><?= e($order['product_name']); ?></h4>
-                                        <span class="px-2 py-0.5 <?= e($order['badge_class']); ?> font-bold text-[9px] tracking-wider uppercase rounded">
+                                    <div class="flex flex-wrap items-start gap-2 mb-1">
+                                        <h4 class="font-serif font-bold text-sm text-gray-900 min-w-0"><?= e($order['product_name']); ?></h4>
+                                        <span class="shrink-0 px-2 py-0.5 <?= e($order['badge_class']); ?> font-bold text-[9px] tracking-wider uppercase rounded">
                                             <?= e($order['status']); ?>
                                         </span>
                                     </div>
@@ -48,7 +48,7 @@ declare(strict_types=1);
                                     <p class="text-[11px] text-gray-500"><?= e($order['fulfillment']); ?> · <?= e($order['date_needed']); ?><?php if (($order['time_needed'] ?? '') !== ''): ?> - <?= e($order['time_needed']); ?><?php endif; ?></p>
                                 </div>
                             </div>
-                            <div class="px-4 py-2.5 bg-[#fbf9f5] border-t border-gray-100 flex items-center justify-between text-[11px] text-gray-500">
+                            <div class="px-4 py-2.5 bg-[#fbf9f5] border-t border-gray-100 flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-500">
                                 <span class="font-medium text-gray-700">Order #<?= e($order['id']); ?></span>
                                 <span>Placed <?= e($order['placed_date']); ?></span>
                             </div>

@@ -296,16 +296,16 @@ scripts/setup-xampp.ps1
 
 ### Phase 8 — Hardening and later product (P8)
 
-**Do after the shop works.** Do not block P1–P5 on these.
+**Status:** Complete as of 8 Sep 2026 for local go-live hardening. Real GCash/card **gateways are not included** (no merchant keys; payment method stays a recorded choice; only an admin can set `payment_received_at`). Git history was **not** rewritten (plaintext demo passwords may still exist in old commits — rotate the live admin password).
 
-- Remove remaining secrets from git history if they were committed; rotate local admin password.
-- Production: HTTPS, HSTS in `.htaccess` (comment is already there), `display_errors` off (already in `.htaccess`).
-- `allow_url_fopen` off may break some PHP HTTP clients later — revisit if you add a payment API.
-- Real GCash/card: official provider APIs, never “fake paid” on the client.
-- Image uploads for inventory (use `storage/uploads`, not git).
-- Email notifications (order placed / status change).
-- Automated tests (PHPUnit) for Catalog stock rules and order transactions.
-- Stop committing `node_modules` if it is still in the repo.
+**Done:**
+
+- Untracked `node_modules/`, `package-lock.json`, `.vscode/`; removed duplicate repo-root `images/` and unused photos.
+- `APP_ENV`, PHP `error_log` under `storage/logs` (no hardcoded `K:/` path), HSTS only when production + HTTPS, CSRF-only logout, admin role re-checked from DB.
+- `receipt_ref` persisted; admin **Record payment**; log mailer; inventory image uploads → `storage/uploads` via `media.php`.
+- PHPUnit 10: `C:\xampp\php\php.exe vendor\bin\phpunit` (10 tests). Install deps with Composer (`composer.phar` is gitignored if you used the local installer).
+
+**Still later (hosting/credentials):** TLS certificate + `APP_ENV=production`, SMTP instead of `MAIL_DRIVER=log`, official payment provider webhooks, password rotation if those hashes were ever public.
 
 ---
 
@@ -418,6 +418,6 @@ Use this as the live tracker. Finish a phase before starting the next.
 - [x] **P5** Admin tabs from queries · real KPIs
 - [x] **P6** `src/` + `views/` · optional `public/` webroot
 - [x] **P7** Partials + one CSS pipeline
-- [ ] **P8** Secrets, HTTPS, payments, tests, uploads
+- [x] **P8** Secrets hygiene, HTTPS-ready headers, tests, uploads, log mailer (no payment gateway)
 
-**Next concrete action:** Phase 8 — hardening and later product (HTTPS, real payment APIs, tests). Do not treat compiled CSS or folder moves as a reason to skip P8 security work.
+**Next concrete action:** Production TLS (`APP_ENV=production` only on HTTPS), rotate the admin password if this repo was ever shared, then a real payment provider when merchant keys exist. Do not treat compiled CSS as a substitute for that.

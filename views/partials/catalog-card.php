@@ -11,7 +11,7 @@ $inStock = Catalog::inStock($product);
                     <?php if ($badgeClass !== ''): ?>
                     <span class="tag <?= e($badgeClass); ?>"><?= e(strtoupper($badge)); ?></span>
                     <?php endif; ?>
-                    <img src="<?= e(kd_image_url((string) $product['image_path'])); ?>" alt="<?= e($product['name']); ?>">
+                    <img src="<?= e(kd_image_url((string) $product['image_path'])); ?>" alt="<?= e($product['name']); ?>" width="400" height="310">
                 </div>
                 <div class="product-info">
                     <span class="category"><?= e(Catalog::categoryLabel($product['category'])); ?></span>

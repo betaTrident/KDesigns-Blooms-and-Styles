@@ -37,6 +37,7 @@ try {
 
     apply_sql_file($pdo, $databaseDir . 'schema.sql', true);
     apply_sql_file($pdo, $databaseDir . 'seeds.sql', false);
+    apply_migrations($pdo, $databaseDir . 'migrations' . DIRECTORY_SEPARATOR);
     maybe_update_seed_passwords($pdo);
 
     echo 'OK users count=' . table_count($pdo, 'users') . PHP_EOL;
@@ -48,6 +49,70 @@ try {
 } catch (Throwable $e) {
     echo 'FAIL ' . $e->getMessage() . PHP_EOL;
     exit(1);
+}
+
+function apply_migrations(PDO $pdo, string $dir): void
+{
+    if (!is_dir($dir)) {
+        echo 'OK skip migrations (directory missing)' . PHP_EOL;
+        return;
+    }
+
+    $files = glob($dir . '*.sql');
+    if ($files === false || $files === []) {
+        echo 'OK skip migrations (none found)' . PHP_EOL;
+        return;
+    }
+
+    sort($files, SORT_STRING);
+    foreach ($files as $path) {
+        try {
+            apply_sql_file($pdo, $path, true);
+        } catch (RuntimeException $e) {
+            if (apply_migration_via_information_schema($pdo, $path)) {
+                echo 'OK ' . basename($path) . ' (information_schema fallback)' . PHP_EOL;
+                continue;
+            }
+            throw $e;
+        }
+    }
+}
+
+function apply_migration_via_information_schema(PDO $pdo, string $path): bool
+{
+    $label = basename($path);
+    if ($label !== '001_p8.sql') {
+        return false;
+    }
+
+    ensure_column($pdo, 'orders', 'receipt_ref', 'VARCHAR(32) NULL AFTER `payment_method`');
+    ensure_column($pdo, 'orders', 'payment_received_at', 'DATETIME NULL AFTER `receipt_ref`');
+
+    return true;
+}
+
+function ensure_column(PDO $pdo, string $table, string $column, string $definition): void
+{
+    if (!preg_match('/^[A-Za-z0-9_]+$/', $table) || !preg_match('/^[A-Za-z0-9_]+$/', $column)) {
+        throw new InvalidArgumentException('Invalid table or column name.');
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT COUNT(*) FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = :table
+           AND COLUMN_NAME = :column'
+    );
+    $stmt->execute([
+        ':table'  => $table,
+        ':column' => $column,
+    ]);
+
+    if ((int) $stmt->fetchColumn() > 0) {
+        return;
+    }
+
+    $pdo->exec('ALTER TABLE `' . $table . '` ADD COLUMN `' . $column . '` ' . $definition);
 }
 
 function apply_sql_file(PDO $pdo, string $path, bool $skipCreateAndUse): void
@@ -75,6 +140,11 @@ function apply_sql_file(PDO $pdo, string $path, bool $skipCreateAndUse): void
             $pdo->exec($statement);
             $executed++;
         } catch (PDOException $e) {
+            $errno = (int) ($e->errorInfo[1] ?? 0);
+            if ($skipCreateAndUse && $errno === 1060) {
+                $executed++;
+                continue;
+            }
             $sqlState = (string) $e->getCode();
             throw new RuntimeException(
                 $label . ' statement ' . ($index + 1) . ' failed'

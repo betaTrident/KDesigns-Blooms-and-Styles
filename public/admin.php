@@ -6,24 +6,7 @@ kd_boot_http();
 require_once KD_ROOT . '/src/Auth.php';
 require_once KD_ROOT . '/src/Catalog.php';
 require_once KD_ROOT . '/src/Orders.php';
-
-if (isset($_GET['logout'])) {
-    $_SESSION = [];
-    if (ini_get('session.use_cookies')) {
-        $params = session_get_cookie_params();
-        setcookie(
-            session_name(),
-            '',
-            time() - 42000,
-            $params['path'],
-            $params['domain'],
-            $params['secure'],
-            $params['httponly']
-        );
-    }
-    session_destroy();
-    kd_redirect('login.php');
-}
+require_once KD_ROOT . '/src/Uploads.php';
 
 Auth::requireAdmin();
 check_session_timeout(1800);
@@ -52,6 +35,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         kd_redirect('admin.php?tab=orders');
     }
+    if (isset($_POST['confirm_payment'])) {
+        $orderId = filter_var($_POST['order_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        if ($orderId !== false) {
+            try {
+                Orders::markPaymentReceived((int) $orderId);
+            } catch (InvalidArgumentException | RuntimeException $e) {
+                $_SESSION['admin_flash_error'] = $e->getMessage();
+            } catch (PDOException $e) {
+                $_SESSION['admin_flash_error'] = 'Could not record payment. Please try again.';
+            }
+        }
+        kd_redirect('admin.php?tab=orders');
+    }
     if (isset($_POST['restock_item'])) {
         $pid = filter_var($_POST['product_id'] ?? 0, FILTER_VALIDATE_INT);
         $qty = filter_var($_POST['restock_qty'] ?? -1, FILTER_VALIDATE_INT);
@@ -60,6 +56,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 Catalog::updateStock((int) $pid, (int) $qty);
             } catch (InvalidArgumentException | RuntimeException $ex) {
                 // Invalid product or quantity — inventory page still reloads
+            }
+            $fileError = (int) ($_FILES['product_image']['error'] ?? UPLOAD_ERR_NO_FILE);
+            if ($fileError !== UPLOAD_ERR_NO_FILE) {
+                try {
+                    $stored = Uploads::store($_FILES['product_image']);
+                    Catalog::updateImage((int) $pid, 'uploads/' . $stored);
+                } catch (InvalidArgumentException | RuntimeException $ex) {
+                    $_SESSION['admin_flash_error'] = $ex->getMessage();
+                }
             }
         }
         kd_redirect('admin.php?tab=inventory');

@@ -141,6 +141,32 @@ final class Catalog
         return null;
     }
 
+    public static function updateImage(int $id, string $imagePath): void
+    {
+        $path = str_replace('\\', '/', trim($imagePath));
+        $path = ltrim($path, '/');
+        if ($path === '' || str_contains($path, '..')) {
+            throw new InvalidArgumentException('Invalid image path.');
+        }
+        if (!str_starts_with($path, 'images/') && !str_starts_with($path, 'uploads/')) {
+            throw new InvalidArgumentException('Invalid image path.');
+        }
+
+        $stmt = db()->prepare(
+            'UPDATE products
+             SET image_path = :image_path
+             WHERE id = :id'
+        );
+        $stmt->execute([
+            ':image_path' => $path,
+            ':id'         => $id,
+        ]);
+
+        if (self::findById($id) === null) {
+            throw new RuntimeException('Product not found.');
+        }
+    }
+
     public static function updateStock(int $id, int $qty): void
     {
         if ($qty < 0 || $qty > 99999) {

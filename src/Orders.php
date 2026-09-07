@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/config/db.php';
+require_once __DIR__ . '/Mailer.php';
 
 final class Orders
 {
@@ -100,15 +101,21 @@ final class Orders
             throw new RuntimeException('Order was created but could not be loaded.');
         }
 
+        try {
+            Mailer::orderPlaced($order);
+        } catch (Throwable $e) {
+            // Mail must never undo a committed order.
+        }
+
         return $order;
     }
 
     public static function findById(int $id): ?array
     {
         $stmt = db()->prepare(
-            'SELECT id, public_code, user_id, fulfillment, payment_method, status,
-                    date_needed, time_needed, customer_name, customer_contact,
-                    delivery_receiver, delivery_contact, delivery_location,
+            'SELECT id, public_code, user_id, fulfillment, payment_method, receipt_ref,
+                    payment_received_at, status, date_needed, time_needed, customer_name,
+                    customer_contact, delivery_receiver, delivery_contact, delivery_location,
                     total_php, created_at, updated_at
              FROM orders
              WHERE id = :id
@@ -132,9 +139,9 @@ final class Orders
     public static function forUser(int $userId): array
     {
         $stmt = db()->prepare(
-            'SELECT id, public_code, user_id, fulfillment, payment_method, status,
-                    date_needed, time_needed, customer_name, customer_contact,
-                    delivery_receiver, delivery_contact, delivery_location,
+            'SELECT id, public_code, user_id, fulfillment, payment_method, receipt_ref,
+                    payment_received_at, status, date_needed, time_needed, customer_name,
+                    customer_contact, delivery_receiver, delivery_contact, delivery_location,
                     total_php, created_at, updated_at
              FROM orders
              WHERE user_id = :user_id
@@ -170,8 +177,9 @@ final class Orders
     {
         $stmt = db()->query(
             'SELECT o.id, o.public_code, o.user_id, u.email AS user_email,
-                    o.customer_name, o.fulfillment, o.payment_method, o.status,
-                    o.date_needed, o.time_needed, o.total_php, o.created_at
+                    o.customer_name, o.fulfillment, o.payment_method, o.receipt_ref,
+                    o.payment_received_at, o.status, o.date_needed, o.time_needed,
+                    o.total_php, o.created_at
              FROM orders o
              INNER JOIN users u ON u.id = o.user_id
              ORDER BY o.created_at DESC, o.id DESC'
@@ -188,21 +196,27 @@ final class Orders
         foreach ($rows as $row) {
             $orderId = (int) $row['id'];
             $orders[$orderId] = [
-                'id'             => $orderId,
-                'public_code'    => (string) $row['public_code'],
-                'user_id'        => (int) $row['user_id'],
-                'user_email'     => (string) $row['user_email'],
-                'customer_name'  => (string) $row['customer_name'],
-                'fulfillment'    => (string) $row['fulfillment'],
-                'payment_method' => (string) $row['payment_method'],
-                'status'         => (string) $row['status'],
-                'date_needed'    => (string) $row['date_needed'],
-                'time_needed'    => $row['time_needed'] !== null
+                'id'                  => $orderId,
+                'public_code'         => (string) $row['public_code'],
+                'user_id'             => (int) $row['user_id'],
+                'user_email'          => (string) $row['user_email'],
+                'customer_name'       => (string) $row['customer_name'],
+                'fulfillment'         => (string) $row['fulfillment'],
+                'payment_method'      => (string) $row['payment_method'],
+                'receipt_ref'         => $row['receipt_ref'] !== null
+                    ? (string) $row['receipt_ref']
+                    : null,
+                'payment_received_at' => $row['payment_received_at'] !== null
+                    ? (string) $row['payment_received_at']
+                    : null,
+                'status'              => (string) $row['status'],
+                'date_needed'         => (string) $row['date_needed'],
+                'time_needed'         => $row['time_needed'] !== null
                     ? (string) $row['time_needed']
                     : null,
-                'total_php'      => (int) $row['total_php'],
-                'created_at'     => (string) $row['created_at'],
-                'items'          => [],
+                'total_php'           => (int) $row['total_php'],
+                'created_at'          => (string) $row['created_at'],
+                'items'               => [],
             ];
             $orderIds[] = $orderId;
         }
@@ -235,6 +249,8 @@ final class Orders
         }
 
         $pdo = db();
+        $oldStatus = '';
+        $changed = false;
 
         try {
             $pdo->beginTransaction();
@@ -286,6 +302,7 @@ final class Orders
             ]);
 
             $pdo->commit();
+            $changed = true;
         } catch (PDOException $e) {
             if ($pdo->inTransaction()) {
                 $pdo->rollBack();
@@ -299,6 +316,35 @@ final class Orders
 
             throw $e;
         }
+
+        if ($changed) {
+            try {
+                $fresh = self::findById($orderId);
+                if ($fresh !== null) {
+                    Mailer::statusChanged($fresh, $oldStatus, $status);
+                }
+            } catch (Throwable $e) {
+                // Mail must never undo a committed status change.
+            }
+        }
+    }
+
+    public static function markPaymentReceived(int $orderId): void
+    {
+        if ($orderId < 1) {
+            throw new InvalidArgumentException('Invalid order.');
+        }
+
+        if (self::findById($orderId) === null) {
+            throw new RuntimeException('Order not found.');
+        }
+
+        $stmt = db()->prepare(
+            'UPDATE orders
+             SET payment_received_at = NOW()
+             WHERE id = :id AND payment_received_at IS NULL'
+        );
+        $stmt->execute([':id' => $orderId]);
     }
 
     public static function normalizeStatus(string $raw): string
@@ -544,12 +590,18 @@ final class Orders
             $deliveryLocation = null;
         }
 
+        $receiptRef = self::optionalString($input['receipt_ref'] ?? null, 32);
+        if ($receiptRef !== null && preg_match('/^[A-Za-z0-9]+$/', $receiptRef) !== 1) {
+            throw new InvalidArgumentException('Receipt reference must be alphanumeric.');
+        }
+
         return [
             'user_id'            => $userId,
             'product_id'         => $productId,
             'qty'                => $qty,
             'fulfillment'        => $fulfillment,
             'payment_method'     => $paymentMethod,
+            'receipt_ref'        => $receiptRef,
             'customer_name'      => $customerName,
             'customer_contact'   => $customerContact,
             'date_needed'        => $dateNeeded,
@@ -565,13 +617,15 @@ final class Orders
     {
         $insertStmt = $pdo->prepare(
             'INSERT INTO orders (
-                public_code, user_id, fulfillment, payment_method, status,
-                date_needed, time_needed, customer_name, customer_contact,
-                delivery_receiver, delivery_contact, delivery_location, total_php
+                public_code, user_id, fulfillment, payment_method, receipt_ref,
+                payment_received_at, status, date_needed, time_needed, customer_name,
+                customer_contact, delivery_receiver, delivery_contact, delivery_location,
+                total_php
              ) VALUES (
-                :public_code, :user_id, :fulfillment, :payment_method, :status,
-                :date_needed, :time_needed, :customer_name, :customer_contact,
-                :delivery_receiver, :delivery_contact, :delivery_location, :total_php
+                :public_code, :user_id, :fulfillment, :payment_method, :receipt_ref,
+                :payment_received_at, :status, :date_needed, :time_needed, :customer_name,
+                :customer_contact, :delivery_receiver, :delivery_contact, :delivery_location,
+                :total_php
              )'
         );
 
@@ -580,19 +634,21 @@ final class Orders
 
             try {
                 $insertStmt->execute([
-                    ':public_code'       => $publicCode,
-                    ':user_id'           => $validated['user_id'],
-                    ':fulfillment'       => $validated['fulfillment'],
-                    ':payment_method'    => $validated['payment_method'],
-                    ':status'            => 'pending',
-                    ':date_needed'       => $validated['date_needed'],
-                    ':time_needed'       => $validated['time_needed'],
-                    ':customer_name'     => $validated['customer_name'],
-                    ':customer_contact'  => $validated['customer_contact'],
-                    ':delivery_receiver' => $validated['delivery_receiver'],
-                    ':delivery_contact'  => $validated['delivery_contact'],
-                    ':delivery_location' => $validated['delivery_location'],
-                    ':total_php'         => $totalPhp,
+                    ':public_code'         => $publicCode,
+                    ':user_id'             => $validated['user_id'],
+                    ':fulfillment'         => $validated['fulfillment'],
+                    ':payment_method'      => $validated['payment_method'],
+                    ':receipt_ref'         => $validated['receipt_ref'],
+                    ':payment_received_at' => null,
+                    ':status'              => 'pending',
+                    ':date_needed'         => $validated['date_needed'],
+                    ':time_needed'         => $validated['time_needed'],
+                    ':customer_name'       => $validated['customer_name'],
+                    ':customer_contact'    => $validated['customer_contact'],
+                    ':delivery_receiver'   => $validated['delivery_receiver'],
+                    ':delivery_contact'    => $validated['delivery_contact'],
+                    ':delivery_location'   => $validated['delivery_location'],
+                    ':total_php'           => $totalPhp,
                 ]);
 
                 return (int) $pdo->lastInsertId();
@@ -840,28 +896,34 @@ final class Orders
     private static function mapOrderRow(array $row): array
     {
         return [
-            'id'                => (int) $row['id'],
-            'public_code'       => (string) $row['public_code'],
-            'user_id'           => (int) $row['user_id'],
-            'fulfillment'       => (string) $row['fulfillment'],
-            'payment_method'    => (string) $row['payment_method'],
-            'status'            => (string) $row['status'],
-            'date_needed'       => (string) $row['date_needed'],
-            'time_needed'       => $row['time_needed'] !== null ? (string) $row['time_needed'] : null,
-            'customer_name'     => (string) $row['customer_name'],
-            'customer_contact'  => (string) $row['customer_contact'],
-            'delivery_receiver' => $row['delivery_receiver'] !== null
+            'id'                  => (int) $row['id'],
+            'public_code'         => (string) $row['public_code'],
+            'user_id'             => (int) $row['user_id'],
+            'fulfillment'         => (string) $row['fulfillment'],
+            'payment_method'      => (string) $row['payment_method'],
+            'receipt_ref'         => ($row['receipt_ref'] ?? null) !== null
+                ? (string) $row['receipt_ref']
+                : null,
+            'payment_received_at' => ($row['payment_received_at'] ?? null) !== null
+                ? (string) $row['payment_received_at']
+                : null,
+            'status'              => (string) $row['status'],
+            'date_needed'         => (string) $row['date_needed'],
+            'time_needed'         => $row['time_needed'] !== null ? (string) $row['time_needed'] : null,
+            'customer_name'       => (string) $row['customer_name'],
+            'customer_contact'    => (string) $row['customer_contact'],
+            'delivery_receiver'   => $row['delivery_receiver'] !== null
                 ? (string) $row['delivery_receiver']
                 : null,
-            'delivery_contact'  => $row['delivery_contact'] !== null
+            'delivery_contact'    => $row['delivery_contact'] !== null
                 ? (string) $row['delivery_contact']
                 : null,
-            'delivery_location' => $row['delivery_location'] !== null
+            'delivery_location'   => $row['delivery_location'] !== null
                 ? (string) $row['delivery_location']
                 : null,
-            'total_php'         => (int) $row['total_php'],
-            'created_at'        => (string) $row['created_at'],
-            'updated_at'        => (string) $row['updated_at'],
+            'total_php'           => (int) $row['total_php'],
+            'created_at'          => (string) $row['created_at'],
+            'updated_at'          => (string) $row['updated_at'],
         ];
     }
 

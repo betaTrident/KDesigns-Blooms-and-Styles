@@ -1,17 +1,4 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const navbar = document.querySelector('.navbar');
-    if (navbar) {
-        const handleNavScroll = () => {
-            if (window.scrollY > 40) {
-                navbar.classList.add('scrolled');
-            } else {
-                navbar.classList.remove('scrolled');
-            }
-        };
-        window.addEventListener('scroll', handleNavScroll, { passive: true });
-        handleNavScroll();
-    }
-
     const filterBtns = document.querySelectorAll('.filter-btn');
     const productCards = document.querySelectorAll('.catalog-grid .product-card');
 
@@ -34,22 +21,24 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     const sections = [
-        { id: 'home', link: document.querySelector('.nav-links a[href="/#home"]') },
-        { id: 'about', link: document.querySelector('.nav-links a[href="/#about"]') },
-        { id: 'catalog', link: document.querySelector('.nav-links a[href="/#catalog"]') }
+        { id: 'home', href: '/#home' },
+        { id: 'about', href: '/#about' },
+        { id: 'catalog', href: '/#catalog' }
     ];
 
     const handleScrollSpy = () => {
         const scrollPos = window.scrollY + 100;
         sections.forEach((section) => {
             const el = document.getElementById(section.id);
-            if (el && section.link) {
-                const top = el.offsetTop;
-                const height = el.offsetHeight;
-                if (scrollPos >= top && scrollPos < top + height) {
-                    sections.forEach((s) => s.link && s.link.classList.remove('active'));
-                    section.link.classList.add('active');
-                }
+            if (!el) {
+                return;
+            }
+            const top = el.offsetTop;
+            const height = el.offsetHeight;
+            if (scrollPos >= top && scrollPos < top + height) {
+                document.querySelectorAll('.nav-links a, .mobile-nav a').forEach((link) => {
+                    link.classList.toggle('active', link.getAttribute('href') === section.href);
+                });
             }
         });
     };

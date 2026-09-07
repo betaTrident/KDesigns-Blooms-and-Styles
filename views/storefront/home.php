@@ -7,7 +7,7 @@ declare(strict_types=1);
 <?php View::render('partials/storefront-nav', ['is_logged_in' => $is_logged_in ?? false, 'user_name' => $user_name ?? '', 'navVariant' => 'storefront']); ?>
 
     <!-- Hero Section -->
-    <header id="home" class="hero">
+    <header id="home" class="hero" style="background-image: url('<?= e(kd_image_url('images/IMG_8620.JPG')); ?>');">
         <div class="hero-overlay"></div>
         <div class="hero-content">
             <span class="subtitle">PREMIER FLORAL STUDIO</span>
@@ -56,13 +56,15 @@ declare(strict_types=1);
                 <span class="subtitle">WHAT WE CREATE</span>
                 <h2>Flowers Catalog</h2>
             </div>
-            <div class="catalog-filters">
-                <button class="filter-btn active" data-filter="all">ALL</button>
-                <button class="filter-btn" data-filter="fresh">FRESH BOUQUET</button>
-                <button class="filter-btn" data-filter="dried">DRIED BOUQUET</button>
-                <button class="filter-btn" data-filter="bloombox">BLOOM BOX</button>
-                <button class="filter-btn" data-filter="glassdome">GLASS DOME</button>
-                <button class="filter-btn" data-filter="others">OTHERS</button>
+            <div class="catalog-filter-scroll">
+                <div class="catalog-filters">
+                    <button class="filter-btn active" data-filter="all">ALL</button>
+                    <button class="filter-btn" data-filter="fresh">FRESH BOUQUET</button>
+                    <button class="filter-btn" data-filter="dried">DRIED BOUQUET</button>
+                    <button class="filter-btn" data-filter="bloombox">BLOOM BOX</button>
+                    <button class="filter-btn" data-filter="glassdome">GLASS DOME</button>
+                    <button class="filter-btn" data-filter="others">OTHERS</button>
+                </div>
             </div>
         </div>
 

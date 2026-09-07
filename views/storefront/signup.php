@@ -2,26 +2,26 @@
 declare(strict_types=1);
 ?>
 <?php View::render('partials/head', ['pageTitle' => $pageTitle, 'cssBundle' => $cssBundle]); ?>
-<body class="relative min-h-screen w-full bg-cover bg-center font-sans flex flex-col" style="background-image: url('<?= e(kd_image_url('images/IMG_8620.JPG')); ?>');">
+<body class="relative min-h-dvh w-full bg-cover bg-center bg-no-repeat font-sans flex flex-col overflow-x-hidden" style="background-image: url('<?= e(kd_image_url('images/IMG_8620.JPG')); ?>');">
 <?php View::render('partials/storefront-nav', ['is_logged_in' => $is_logged_in ?? false, 'user_name' => $user_name ?? '', 'navVariant' => 'auth']); ?>
     
     <!-- Dark transparent overlay -->
-    <div class="absolute inset-0 bg-black/70 z-0"></div>
+    <div class="fixed inset-0 bg-black/70 z-0"></div>
 
     <!-- Modal Container Wrapper -->
-    <div class="relative z-10 flex-1 flex items-center justify-center px-4 py-8">
+    <div class="relative z-10 flex-1 flex flex-col items-center justify-center px-4 py-6 sm:py-12 min-h-0 w-full overflow-y-auto">
         
         <!-- The Modal Card -->
-        <div class="w-full max-w-[400px] bg-kdesigns-cream rounded-md shadow-2xl overflow-hidden border border-gray-300">
+        <div class="w-full max-w-[420px] bg-kdesigns-cream rounded-md shadow-2xl overflow-hidden border border-gray-300 flex flex-col max-h-[90vh] my-auto">
             
-            <div class="bg-kdesigns-burgundy px-8 pt-8 pb-6">
+            <div class="bg-kdesigns-burgundy px-6 sm:px-8 pt-8 pb-6 flex-shrink-0">
                 <p class="text-[10px] tracking-[0.15em] font-semibold text-white/60 uppercase mb-2">
                     KDesigns Blooms &amp; Styles
                 </p>
                 <h2 class="text-3xl font-serif text-white font-bold">Create an account</h2>
             </div>
 
-            <div class="flex border-b border-kdesigns-inputBorder bg-white/50">
+            <div class="flex border-b border-kdesigns-inputBorder bg-white/50 flex-shrink-0">
                 <a href="login.php" class="w-1/2 text-center py-4 text-sm font-semibold text-kdesigns-textMuted hover:text-gray-800 transition">
                     LOG IN
                 </a>
@@ -30,7 +30,7 @@ declare(strict_types=1);
                 </a>
             </div>
 
-            <div class="px-8 pt-6 pb-8">
+            <div class="flex-1 overflow-y-auto px-6 sm:px-8 pt-6 pb-8">
                 
                 <!-- Error Display — XSS-safe output -->
                 <?php if (!empty($errors)): ?>
