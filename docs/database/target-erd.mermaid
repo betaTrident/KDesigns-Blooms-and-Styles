@@ -1,0 +1,68 @@
+%% KDesigns Blooms & Styles — TARGET database ERD (Phase 1 schema)
+%% Physical MariaDB tables to implement. Not created in phpMyAdmin yet.
+%% Preview: VS Code Mermaid extension, or https://mermaid.live
+%%
+%% Cardinality:
+%%   users     1 ── *  orders
+%%   orders    1 ── *  order_items
+%%   products  1 ── *  order_items   (via snapshot; product_id is FK)
+
+erDiagram
+    users ||--o{ orders : places
+    orders ||--|{ order_items : contains
+    products ||--o{ order_items : "listed as"
+
+    users {
+        int id PK "AUTO_INCREMENT"
+        string name "max 100"
+        string email UK "max 254"
+        string password_hash "Argon2id"
+        enum role "customer | admin"
+        datetime created_at
+        datetime updated_at
+        datetime last_login_at "nullable"
+    }
+
+    products {
+        int id PK "AUTO_INCREMENT"
+        string name
+        string slug UK "URL-safe unique"
+        enum category "fresh | dried | bloombox | glassdome | others"
+        text description
+        int price_php "integer pesos e.g. 1850"
+        string image_path "e.g. images/IMG_8603.JPG"
+        int stock "0 = sold out"
+        string badge "Bestseller | Limited | Luxury | New | empty"
+        boolean is_active "hide from catalog"
+        datetime created_at
+        datetime updated_at
+    }
+
+    orders {
+        int id PK "AUTO_INCREMENT"
+        string public_code UK "KDB-###### shown to customer"
+        int user_id FK "→ users.id"
+        enum fulfillment "pickup | delivery"
+        enum payment_method "Pay at Shop | GCash | BDO | BPI"
+        enum status "pending | processing | delivered | cancelled"
+        date date_needed
+        string time_needed "nullable"
+        string customer_name "checkout name field"
+        string customer_contact "checkout phone"
+        string delivery_receiver "nullable unless delivery"
+        string delivery_contact "nullable"
+        text delivery_location "nullable"
+        int total_php "sum of line snapshots"
+        datetime created_at
+        datetime updated_at
+    }
+
+    order_items {
+        int id PK "AUTO_INCREMENT"
+        int order_id FK "→ orders.id"
+        int product_id FK "→ products.id"
+        string product_name_snapshot "frozen at purchase"
+        int unit_price_php_snapshot "frozen at purchase"
+        string image_path_snapshot "tracker thumbnail"
+        int qty "default 1"
+    }

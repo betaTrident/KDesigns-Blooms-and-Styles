@@ -1,0 +1,16 @@
+@import "tailwindcss";
+
+@source "../../views/**/*.php";
+@source "../../public/**/*.php";
+@source "../../src/Orders.php";
+
+@theme {
+  --color-kdesigns-cream: #f6f3eb;
+  --color-kdesigns-burgundy: #4c1719;
+  --color-kdesigns-sidebar: #361012;
+  --color-kdesigns-inputBg: #efeadf;
+  --color-kdesigns-inputBorder: #e1d9cc;
+  --color-kdesigns-textMuted: #7c766b;
+  --font-sans: Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Playfair Display", ui-serif, Georgia, serif;
+}

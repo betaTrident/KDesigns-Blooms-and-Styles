@@ -1,59 +1,8 @@
 <?php
 declare(strict_types=1);
-require_once __DIR__ . '/config/env.php';
-require_once __DIR__ . '/config/session.php';
-require_once __DIR__ . '/config/security.php';
-
-secure_session_start();
-
-// ── AUTHENTICATION GUARD ─────────────────────────────────────────────────────
-// Only logged-in users may access this page. No redirect leaks — generic 403.
-if (!isset($_SESSION['user_email'])) {
-    header('Location: login.php');
-    exit;
-}
-
-// ── SESSION IDLE TIMEOUT ─────────────────────────────────────────────────────
-check_session_timeout(1800); // 30-minute idle timeout
-
-$user_orders = $_SESSION['user_orders'] ?? [];
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Order Tracker - KDesigns Blooms &amp; Styles</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
-          integrity="sha512-iecdLmaskl7CVkqkXNQ/ZH/XLlvWZOJyj7Yy7tcenmpD1ypASozpmT/E0iPtmFIB46ZmdtAc9eNBvH0H/ZpiBw=="
-          crossorigin="anonymous" referrerpolicy="no-referrer">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        kdesigns: {
-                            cream: '#f6f3eb',
-                            burgundy: '#4c1719',
-                            inputBg: '#efeadf',
-                            inputBorder: '#e1d9cc',
-                            textMuted: '#7c766b'
-                        }
-                    },
-                    fontFamily: {
-                        sans: ['Inter', 'sans-serif'],
-                        serif: ['Playfair Display', 'serif'],
-                    }
-                }
-            }
-        }
-    </script>
-</head>
-<body class="relative h-screen w-full bg-cover bg-center font-sans overflow-hidden flex justify-end" style="background-image: url('images/IMG_8620.JPG');">
+<?php View::render('partials/head', ['pageTitle' => $pageTitle, 'cssBundle' => $cssBundle]); ?>
+<body class="relative h-screen w-full bg-cover bg-center font-sans overflow-hidden flex justify-end" style="background-image: url('<?= e(kd_image_url('images/IMG_8620.JPG')); ?>');">
 
     <!-- Dark transparent overlay -->
     <div class="absolute inset-0 bg-black/60 z-0"></div>
@@ -91,12 +40,12 @@ $user_orders = $_SESSION['user_orders'] ?? [];
                                 <div class="flex-1 min-w-0">
                                     <div class="flex items-start justify-between gap-2 mb-1">
                                         <h4 class="font-serif font-bold text-sm text-gray-900 truncate"><?= e($order['product_name']); ?></h4>
-                                        <span class="px-2 py-0.5 bg-amber-100 text-amber-800 font-bold text-[9px] tracking-wider uppercase rounded">
+                                        <span class="px-2 py-0.5 <?= e($order['badge_class']); ?> font-bold text-[9px] tracking-wider uppercase rounded">
                                             <?= e($order['status']); ?>
                                         </span>
                                     </div>
                                     <p class="font-serif font-bold text-sm text-gray-900 mb-1"><?= e($order['price']); ?></p>
-                                    <p class="text-[11px] text-gray-500"><?= e($order['fulfillment']); ?> · <?= e($order['date_needed']); ?> - <?= e($order['time_needed']); ?></p>
+                                    <p class="text-[11px] text-gray-500"><?= e($order['fulfillment']); ?> · <?= e($order['date_needed']); ?><?php if (($order['time_needed'] ?? '') !== ''): ?> - <?= e($order['time_needed']); ?><?php endif; ?></p>
                                 </div>
                             </div>
                             <div class="px-4 py-2.5 bg-[#fbf9f5] border-t border-gray-100 flex items-center justify-between text-[11px] text-gray-500">

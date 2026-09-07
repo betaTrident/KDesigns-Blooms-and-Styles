@@ -1,0 +1,4 @@
+# Assets are static. Never execute scripts from this tree.
+<FilesMatch "\.(php|phtml|phar)$">
+    Require all denied
+</FilesMatch>

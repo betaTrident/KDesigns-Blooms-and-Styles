@@ -6,8 +6,8 @@
 .env.local
 .env.production
 
-# Config directory contains sensitive files
-config/db.php
+# Database credentials live in .env, not in PHP.
+# config/db.php is a PDO helper with no secrets and should be committed.
 
 # Application storage (logs, rate limits, uploads)
 storage/logs/

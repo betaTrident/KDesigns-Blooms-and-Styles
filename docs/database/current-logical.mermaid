@@ -1,0 +1,27 @@
+%% KDesigns Blooms & Styles — CURRENT logical model (as of 8 Sep 2026)
+%% There is NO MariaDB schema. These are PHP session bags and hardcoded arrays.
+%% They do not share keys. There are no foreign keys.
+%% Preview: VS Code Mermaid extension, or https://mermaid.live
+
+flowchart TB
+    subgraph isolated["Current state: isolated stores — no database, no FK"]
+        ENV[".env accounts<br/>ADMIN_EMAIL, ADMIN_HASH<br/>CUSTOMER_EMAIL, CUSTOMER_HASH"]
+        SESS["PHP session identity<br/>user_email, user_name, user_role<br/>admin_logged_in"]
+        CAT_HTML["index.php HTML catalog<br/>12 cards, stock as text"]
+        CAT_CONST["orderform.php PRODUCT_CATALOG<br/>11 products, price + image"]
+        CAT_ADMIN["$_SESSION admin_inventory<br/>8 products, stock int"]
+        ORD_USER["$_SESSION user_orders<br/>customer tracker"]
+        ORD_ADMIN["$_SESSION admin_orders<br/>dashboard fixtures"]
+        WIZARD["Checkout wizard keys<br/>order_step, delivery_*, payment_method"]
+    end
+
+    ENV -.->|"login.php only"| SESS
+    SESS -.->|"does not set admin_logged_in"| ORD_ADMIN
+    CAT_HTML -.->|"name + price in URL"| CAT_CONST
+    CAT_CONST -->|"push array, same browser only"| ORD_USER
+    CAT_ADMIN -.->|"no link"| ORD_ADMIN
+    WIZARD -->|"copied into user_orders"| ORD_USER
+
+    CAT_HTML -.-x CAT_ADMIN
+    ORD_USER -.-x ORD_ADMIN
+    SESS -.-x ORD_USER

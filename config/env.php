@@ -36,7 +36,7 @@ function load_env(string $path): void {
         // Do not overwrite already-set environment variables
         if (!array_key_exists($key, $_ENV)) {
             $_ENV[$key] = $value;
-            putenv("$key=$value");
+            putenv($key . '=' . $value);
         }
     }
 }
