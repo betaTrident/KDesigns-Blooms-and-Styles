@@ -1,0 +1,525 @@
+﻿# Review package: Task 1 uncommitted working tree
+# Base: 0965526 (HEAD before Task 1)
+# Head: working tree (no commit)
+
+## Commits
+(none — user forbade commits)
+
+## Files changed
+ public/admin.php          |  15 ++++-
+ src/Orders.php            | 152 ++++++++++++++++++++++++++++++++++++----------
+ views/admin/dashboard.php |   6 ++
+ 3 files changed, 139 insertions(+), 34 deletions(-)
+
+## Untracked
+
+?? tests/OrdersPaymentTest.php
+
+## Diff
+
+diff --git a/public/admin.php b/public/admin.php
+index 0edecd2..55e6af9 100644
+--- a/public/admin.php
++++ b/public/admin.php
+@@ -32,21 +32,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+                 $_SESSION['admin_flash_error'] = 'Could not update that order. Please try again.';
+             }
+         }
+ 
+         kd_redirect('admin.php?tab=orders');
+     }
+     if (isset($_POST['confirm_payment'])) {
+         $orderId = filter_var($_POST['order_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+         if ($orderId !== false) {
+             try {
+-                Orders::markPaymentReceived((int) $orderId);
++                $before = Orders::findById((int) $orderId);
++                $order = Orders::markPaymentReceived((int) $orderId);
++                if (
++                    $before !== null
++                    && $before['status'] === 'pending'
++                    && ($order['status'] ?? '') === 'processing'
++                ) {
++                    $_SESSION['admin_flash_success'] = 'Payment recorded. Status is now Processing.';
++                } else {
++                    $_SESSION['admin_flash_success'] = 'Payment recorded.';
++                }
+             } catch (InvalidArgumentException | RuntimeException $e) {
+                 $_SESSION['admin_flash_error'] = $e->getMessage();
+             } catch (PDOException $e) {
+                 $_SESSION['admin_flash_error'] = 'Could not record payment. Please try again.';
+             }
+         }
+         kd_redirect('admin.php?tab=orders');
+     }
+     if (isset($_POST['restock_item'])) {
+         $pid = filter_var($_POST['product_id'] ?? 0, FILTER_VALIDATE_INT);
+@@ -71,26 +81,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+     }
+ }
+ 
+ $stats = Orders::stats();
+ $adminOrders = Orders::allForAdmin();
+ $buyers = Orders::buyers();
+ $inventory = Catalog::all();
+ $lowStock = array_values(array_filter($inventory, fn($p) => (int) $p['stock'] <= 5));
+ $flashError = (string) ($_SESSION['admin_flash_error'] ?? '');
+ unset($_SESSION['admin_flash_error']);
++$flashSuccess = (string) ($_SESSION['admin_flash_success'] ?? '');
++unset($_SESSION['admin_flash_success']);
+ 
+ View::render('admin/dashboard', [
+     'pageTitle'     => 'Admin Dashboard - KDesigns Blooms & Styles',
+     'cssBundle'     => 'app',
+     'tab'           => $tab,
+     'stats'         => $stats,
+     'adminOrders'   => $adminOrders,
+     'buyers'        => $buyers,
+     'pendingCount'  => (int) $stats['pending_count'],
+     'inventory'     => $inventory,
+     'lowStock'      => $lowStock,
+     'lowStockCount' => count($lowStock),
+     'activeCount'   => count(array_filter($inventory, fn($p) => (int) $p['is_active'] === 1)),
+     'recentOrders'  => array_slice($adminOrders, 0, 4),
+     'flashError'    => $flashError,
++    'flashSuccess'  => $flashSuccess,
+ ]);
+diff --git a/src/Orders.php b/src/Orders.php
+index a2d5153..cb0ffb3 100644
+--- a/src/Orders.php
++++ b/src/Orders.php
+@@ -269,47 +269,23 @@ final class Orders
+                 throw new RuntimeException('Order not found.');
+             }
+ 
+             $oldStatus = (string) $order['status'];
+ 
+             if ($oldStatus === $status) {
+                 $pdo->commit();
+                 return;
+             }
+ 
+-            $itemStmt = $pdo->prepare(
+-                'SELECT product_id, qty
+-                 FROM order_items
+-                 WHERE order_id = :order_id'
+-            );
+-            $itemStmt->execute([':order_id' => $orderId]);
+-            $items = $itemStmt->fetchAll();
+-            self::lockProductsForItems($pdo, $items);
+-
+-            if ($status === 'cancelled' && $oldStatus !== 'cancelled') {
+-                self::restockItems($pdo, $items);
+-            } elseif ($oldStatus === 'cancelled' && $status !== 'cancelled') {
+-                self::decrementItems($pdo, $items);
+-            }
+-
+-            $updateStmt = $pdo->prepare(
+-                'UPDATE orders
+-                 SET status = :status
+-                 WHERE id = :id'
+-            );
+-            $updateStmt->execute([
+-                ':status' => $status,
+-                ':id'     => $orderId,
+-            ]);
++            $changed = self::applyStatusChange($pdo, $orderId, $oldStatus, $status);
+ 
+             $pdo->commit();
+-            $changed = true;
+         } catch (PDOException $e) {
+             if ($pdo->inTransaction()) {
+                 $pdo->rollBack();
+             }
+ 
+             throw $e;
+         } catch (RuntimeException $e) {
+             if ($pdo->inTransaction()) {
+                 $pdo->rollBack();
+             }
+@@ -322,36 +298,108 @@ final class Orders
+                 $fresh = self::findById($orderId);
+                 if ($fresh !== null) {
+                     Mailer::statusChanged($fresh, $oldStatus, $status);
+                 }
+             } catch (Throwable $e) {
+                 // Mail must never undo a committed status change.
+             }
+         }
+     }
+ 
+-    public static function markPaymentReceived(int $orderId): void
++    public static function markPaymentReceived(int $orderId): array
+     {
+         if ($orderId < 1) {
+             throw new InvalidArgumentException('Invalid order.');
+         }
+ 
+-        if (self::findById($orderId) === null) {
++        $pdo = db();
++        $oldStatus = '';
++        $statusChanged = false;
++
++        try {
++            $pdo->beginTransaction();
++
++            $stmt = $pdo->prepare(
++                'SELECT id, status, payment_received_at
++                 FROM orders
++                 WHERE id = :id
++                 FOR UPDATE'
++            );
++            $stmt->execute([':id' => $orderId]);
++            $order = $stmt->fetch();
++
++            if ($order === false) {
++                $pdo->rollBack();
++                throw new RuntimeException('Order not found.');
++            }
++
++            $oldStatus = (string) $order['status'];
++
++            if ($oldStatus === 'cancelled') {
++                $pdo->rollBack();
++                throw new InvalidArgumentException('Cancelled orders cannot be marked paid.');
++            }
++
++            if ($order['payment_received_at'] !== null) {
++                $pdo->commit();
++
++                $current = self::findById($orderId);
++                if ($current === null) {
++                    throw new RuntimeException('Order not found.');
++                }
++
++                return $current;
++            }
++
++            $payStmt = $pdo->prepare(
++                'UPDATE orders
++                 SET payment_received_at = NOW()
++                 WHERE id = :id'
++            );
++            $payStmt->execute([':id' => $orderId]);
++
++            if ($oldStatus === 'pending') {
++                $statusChanged = self::applyStatusChange($pdo, $orderId, $oldStatus, 'processing');
++            }
++
++            $pdo->commit();
++        } catch (PDOException $e) {
++            if ($pdo->inTransaction()) {
++                $pdo->rollBack();
++            }
++
++            throw $e;
++        } catch (RuntimeException | InvalidArgumentException $e) {
++            if ($pdo->inTransaction()) {
++                $pdo->rollBack();
++            }
++
++            throw $e;
++        }
++
++        if ($statusChanged) {
++            try {
++                $fresh = self::findById($orderId);
++                if ($fresh !== null) {
++                    Mailer::statusChanged($fresh, $oldStatus, 'processing');
++                }
++            } catch (Throwable $e) {
++                // Mail must never undo a committed status change.
++            }
++        }
++
++        $updated = self::findById($orderId);
++        if ($updated === null) {
+             throw new RuntimeException('Order not found.');
+         }
+ 
+-        $stmt = db()->prepare(
+-            'UPDATE orders
+-             SET payment_received_at = NOW()
+-             WHERE id = :id AND payment_received_at IS NULL'
+-        );
+-        $stmt->execute([':id' => $orderId]);
++        return $updated;
+     }
+ 
+     public static function normalizeStatus(string $raw): string
+     {
+         $normalized = strtolower(trim($raw));
+ 
+         return match ($normalized) {
+             'pending'    => 'pending',
+             'processing' => 'processing',
+             'delivered'  => 'delivered',
+@@ -753,20 +801,58 @@ final class Orders
+                 $labels[$userId] = $part;
+                 continue;
+             }
+ 
+             $labels[$userId] .= ' ┬╖ ' . $part;
+         }
+ 
+         return $labels;
+     }
+ 
++    private static function applyStatusChange(
++        PDO $pdo,
++        int $orderId,
++        string $oldStatus,
++        string $newStatus
++    ): bool {
++        if ($oldStatus === $newStatus) {
++            return false;
++        }
++
++        $itemStmt = $pdo->prepare(
++            'SELECT product_id, qty
++             FROM order_items
++             WHERE order_id = :order_id'
++        );
++        $itemStmt->execute([':order_id' => $orderId]);
++        $items = $itemStmt->fetchAll();
++        self::lockProductsForItems($pdo, $items);
++
++        if ($newStatus === 'cancelled' && $oldStatus !== 'cancelled') {
++            self::restockItems($pdo, $items);
++        } elseif ($oldStatus === 'cancelled' && $newStatus !== 'cancelled') {
++            self::decrementItems($pdo, $items);
++        }
++
++        $updateStmt = $pdo->prepare(
++            'UPDATE orders
++             SET status = :status
++             WHERE id = :id'
++        );
++        $updateStmt->execute([
++            ':status' => $newStatus,
++            ':id'     => $orderId,
++        ]);
++
++        return true;
++    }
++
+     /** @param list<array<string,mixed>> $items */
+     private static function lockProductsForItems(PDO $pdo, array $items): void
+     {
+         $productIds = [];
+         foreach ($items as $item) {
+             $productId = (int) ($item['product_id'] ?? 0);
+             if ($productId > 0) {
+                 $productIds[$productId] = $productId;
+             }
+         }
+diff --git a/views/admin/dashboard.php b/views/admin/dashboard.php
+index a08204f..e839282 100644
+--- a/views/admin/dashboard.php
++++ b/views/admin/dashboard.php
+@@ -13,20 +13,26 @@ declare(strict_types=1);
+ 
+     <!-- MAIN CONTENT AREA -->
+     <main class="flex-1 overflow-y-auto bg-[#f6f3eb] p-3 sm:p-6 md:p-10 w-full min-w-0">
+ 
+         <?php if ($flashError !== ''): ?>
+             <div class="mb-6 px-4 py-3 bg-red-50 border border-red-200 rounded text-sm text-red-800">
+                 <?= e($flashError); ?>
+             </div>
+         <?php endif; ?>
+ 
++        <?php if (($flashSuccess ?? '') !== ''): ?>
++            <div class="mb-6 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded text-sm text-emerald-800">
++                <?= e($flashSuccess); ?>
++            </div>
++        <?php endif; ?>
++
+         <!-- Top Bar Date Display -->
+         <div class="flex items-center justify-between gap-3 mb-6">
+             <button type="button" id="admin-menu-toggle" class="md:hidden inline-flex items-center justify-center gap-2 px-3 py-2 bg-[#4c1719] text-white rounded text-xs font-bold uppercase tracking-wider" aria-controls="admin-sidebar" aria-expanded="false">
+                 <i class="fa-solid fa-bars"></i> Menu
+             </button>
+             <div class="bg-white px-4 py-2 rounded border border-gray-200 text-xs text-gray-700 shadow-sm font-medium ml-auto">
+                 <?= e(date('D, F j, Y')); ?>
+             </div>
+         </div>
+ 
+
+## New file: tests/OrdersPaymentTest.php
+
+diff --git a/tests/OrdersPaymentTest.php b/tests/OrdersPaymentTest.php
+new file mode 100644
+index 0000000..c02a361
+--- /dev/null
++++ b/tests/OrdersPaymentTest.php
+@@ -0,0 +1,170 @@
++<?php
++declare(strict_types=1);
++
++use PHPUnit\Framework\TestCase;
++
++final class OrdersPaymentTest extends TestCase
++{
++    private PDO $pdo;
++
++    private int $userId = 0;
++
++    /** @var list<int> */
++    private array $productIds = [];
++
++    /** @var list<int> */
++    private array $orderIds = [];
++
++    protected function setUp(): void
++    {
++        require_once dirname(__DIR__) . '/config/bootstrap.php';
++        require_once dirname(__DIR__) . '/src/Auth.php';
++        require_once dirname(__DIR__) . '/src/Orders.php';
++
++        try {
++            $this->pdo = db();
++            $this->pdo->query('SELECT 1');
++        } catch (Throwable $e) {
++            $this->markTestSkipped('Database unreachable.');
++        }
++
++        try {
++            $this->pdo->query('SELECT receipt_ref, payment_received_at FROM orders LIMIT 1');
++        } catch (Throwable $e) {
++            $this->markTestSkipped('P8 order columns are not applied yet.');
++        }
++    }
++
++    protected function tearDown(): void
++    {
++        if (!isset($this->pdo)) {
++            return;
++        }
++
++        try {
++            foreach ($this->orderIds as $orderId) {
++                $stmt = $this->pdo->prepare('DELETE FROM order_items WHERE order_id = :id');
++                $stmt->execute([':id' => $orderId]);
++                $stmt = $this->pdo->prepare('DELETE FROM orders WHERE id = :id');
++                $stmt->execute([':id' => $orderId]);
++            }
++            foreach ($this->productIds as $productId) {
++                $stmt = $this->pdo->prepare('DELETE FROM products WHERE id = :id');
++                $stmt->execute([':id' => $productId]);
++            }
++            if ($this->userId > 0) {
++                $stmt = $this->pdo->prepare('DELETE FROM users WHERE id = :id');
++                $stmt->execute([':id' => $this->userId]);
++            }
++        } catch (Throwable $e) {
++            // Cleanup best-effort so leftover rows do not fail later tests.
++        }
++    }
++
++    public function testMarkPaymentReceivedAdvancesPendingToProcessing(): void
++    {
++        $orderId = $this->createPendingOrder();
++        $result = Orders::markPaymentReceived($orderId);
++
++        $this->assertNotNull($result['payment_received_at']);
++        $this->assertSame('processing', $result['status']);
++
++        $fresh = Orders::findById($orderId);
++        $this->assertNotNull($fresh);
++        $this->assertNotNull($fresh['payment_received_at']);
++        $this->assertSame('processing', $fresh['status']);
++    }
++
++    public function testMarkPaymentReceivedRejectsCancelledOrder(): void
++    {
++        $orderId = $this->createPendingOrder();
++        Orders::updateStatus($orderId, 'cancelled');
++
++        $this->expectException(InvalidArgumentException::class);
++        $this->expectExceptionMessage('Cancelled orders cannot be marked paid.');
++
++        Orders::markPaymentReceived($orderId);
++    }
++
++    public function testMarkPaymentReceivedSetsTimestampWithoutChangingProcessingStatus(): void
++    {
++        $orderId = $this->createPendingOrder();
++        Orders::updateStatus($orderId, 'processing');
++
++        $before = Orders::findById($orderId);
++        $this->assertNotNull($before);
++        $this->assertNull($before['payment_received_at']);
++        $this->assertSame('processing', $before['status']);
++
++        $result = Orders::markPaymentReceived($orderId);
++
++        $this->assertNotNull($result['payment_received_at']);
++        $this->assertSame('processing', $result['status']);
++    }
++
++    public function testMarkPaymentReceivedIsIdempotentWhenAlreadyPaid(): void
++    {
++        $orderId = $this->createPendingOrder();
++        $first = Orders::markPaymentReceived($orderId);
++        $second = Orders::markPaymentReceived($orderId);
++
++        $this->assertSame($first['payment_received_at'], $second['payment_received_at']);
++        $this->assertSame('processing', $second['status']);
++    }
++
++    private function createPendingOrder(): int
++    {
++        $this->userId = $this->userId > 0 ? $this->userId : $this->insertUser();
++        $productId = $this->insertProduct(5);
++        $this->productIds[] = $productId;
++
++        $order = Orders::create($this->orderInput($this->userId, $productId));
++        $orderId = (int) $order['id'];
++        $this->orderIds[] = $orderId;
++
++        return $orderId;
++    }
++
++    private function insertUser(): int
++    {
++        $email = 'paytest-' . bin2hex(random_bytes(4)) . '@kdesigns.test';
++
++        return Auth::createCustomer('Pay Test', $email, 'PayTestPass-2026');
++    }
++
++    private function insertProduct(int $stock): int
++    {
++        $slug = 'pay-test-' . bin2hex(random_bytes(6));
++        $stmt = $this->pdo->prepare(
++            'INSERT INTO products (name, slug, category, description, price_php, image_path, stock, is_active)
++             VALUES (:name, :slug, :category, :description, :price_php, :image_path, :stock, 1)'
++        );
++        $stmt->execute([
++            ':name'        => 'Pay Test Bouquet',
++            ':slug'        => $slug,
++            ':category'    => 'fresh',
++            ':description' => 'Payment test product',
++            ':price_php'   => 1000,
++            ':image_path'  => 'images/logo.png',
++            ':stock'       => $stock,
++        ]);
++
++        return (int) $this->pdo->lastInsertId();
++    }
++
++    /** @return array<string,mixed> */
++    private function orderInput(int $userId, int $productId): array
++    {
++        return [
++            'user_id'          => $userId,
++            'product_id'       => $productId,
++            'qty'              => 1,
++            'fulfillment'      => 'pickup',
++            'payment_method'   => 'Pay at Shop',
++            'receipt_ref'      => 'KDTESTREF1',
++            'customer_name'    => 'Pay Tester',
++            'customer_contact' => '09170000000',
++            'date_needed'      => (new DateTimeImmutable('today'))->format('Y-m-d'),
++        ];
++    }
++}

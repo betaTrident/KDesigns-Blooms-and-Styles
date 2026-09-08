@@ -1,0 +1,1812 @@
+﻿# Review package: Task 5 uncommitted working tree
+# Note: src/Orders.php and public/admin.php vs git HEAD also include Tasks 1-4. Judge Task 5: analytics(), overview widgets, low-stock active filter, tests/OrdersAnalyticsTest.php, views/admin/overview.php.
+
+## Commits
+(none)
+
+## Files changed
+ public/admin.php          | 145 ++++++++++++++++-
+ src/Orders.php            | 342 +++++++++++++++++++++++++++++++++++-----
+ views/admin/dashboard.php | 391 ++++++++++++++++++++++++++++++----------------
+ 3 files changed, 697 insertions(+), 181 deletions(-)
+
+## New file: views/admin/overview.php
+
+diff --git a/views/admin/overview.php b/views/admin/overview.php
+new file mode 100644
+index 0000000..4a0a134
+--- /dev/null
++++ b/views/admin/overview.php
+@@ -0,0 +1,279 @@
++<?php
++declare(strict_types=1);
++
++/** @var array<string,mixed> $stats */
++/** @var array<string,mixed> $analytics */
++/** @var list<array<string,mixed>> $inventory */
++/** @var list<array<string,mixed>> $lowStock */
++/** @var list<array<string,mixed>> $recentOrders */
++
++$statusTotal = array_sum($analytics['by_status']);
++$statusPct = static function (string $key) use ($analytics, $statusTotal): int {
++    if ($statusTotal === 0) {
++        return 0;
++    }
++
++    return (int) round(((int) $analytics['by_status'][$key] / $statusTotal) * 100);
++};
++
++$fulfillmentTotal = array_sum($analytics['by_fulfillment']);
++$fulfillmentPct = static function (string $key) use ($analytics, $fulfillmentTotal): int {
++    if ($fulfillmentTotal === 0) {
++        return 0;
++    }
++
++    return (int) round(((int) $analytics['by_fulfillment'][$key] / $fulfillmentTotal) * 100);
++};
++
++$paymentTotal = array_sum($analytics['by_payment_method']);
++$paymentPct = static function (string $key) use ($analytics, $paymentTotal): int {
++    if ($paymentTotal === 0) {
++        return 0;
++    }
++
++    return (int) round(((int) $analytics['by_payment_method'][$key] / $paymentTotal) * 100);
++};
++?>
++<div class="mb-8">
++    <p class="text-[10px] tracking-widest font-semibold text-gray-400 uppercase">OVERVIEW</p>
++    <h2 class="admin-page-title font-serif font-bold text-gray-900 mt-0.5">Dashboard Overview</h2>
++</div>
++
++<!-- Top Metric Cards Grid -->
++<div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 sm:gap-4 mb-6 sm:mb-8">
++    <div class="bg-white p-4 sm:p-5 rounded border-l-4 border-[#4c1719] shadow-sm">
++        <p class="text-[10px] tracking-wider font-bold text-gray-500 uppercase">TOTAL REVENUE</p>
++        <h3 class="text-2xl font-serif font-bold text-[#4c1719] mt-2"><?= e(Catalog::formatPrice((int) $stats['revenue_php'])); ?></h3>
++        <p class="text-[11px] text-gray-400 mt-1">Excl. cancelled</p>
++    </div>
++    <div class="bg-white p-4 sm:p-5 rounded border-l-4 border-emerald-600 shadow-sm">
++        <p class="text-[10px] tracking-wider font-bold text-gray-500 uppercase">TOTAL ORDERS</p>
++        <h3 class="text-2xl font-serif font-bold text-gray-900 mt-2"><?= (int) $stats['order_count']; ?></h3>
++        <p class="text-[11px] text-gray-400 mt-1"><?= (int) $stats['pending_count']; ?> pending</p>
++    </div>
++    <div class="bg-white p-4 sm:p-5 rounded border-l-4 border-amber-600 shadow-sm">
++        <p class="text-[10px] tracking-wider font-bold text-gray-500 uppercase">LOW STOCK</p>
++        <h3 class="text-2xl font-serif font-bold text-amber-700 mt-2"><?= (int) $lowStockCount; ?></h3>
++        <p class="text-[11px] text-gray-400 mt-1">Active products only</p>
++    </div>
++    <div class="bg-white p-4 sm:p-5 rounded border-l-4 border-blue-600 shadow-sm">
++        <p class="text-[10px] tracking-wider font-bold text-gray-500 uppercase">ACTIVE PRODUCTS</p>
++        <h3 class="text-2xl font-serif font-bold text-blue-900 mt-2"><?= (int) $activeCount; ?></h3>
++        <p class="text-[11px] text-gray-400 mt-1">of <?= count($inventory); ?> total</p>
++    </div>
++    <div class="bg-white p-4 sm:p-5 rounded border-l-4 border-[#8c7853] shadow-sm">
++        <p class="text-[10px] tracking-wider font-bold text-gray-500 uppercase">TOTAL BUYERS</p>
++        <h3 class="text-2xl font-serif font-bold text-gray-900 mt-2"><?= (int) $stats['buyer_count']; ?></h3>
++        <p class="text-[11px] text-gray-400 mt-1">Unique customers</p>
++    </div>
++</div>
++
++<!-- Analytics Widgets -->
++<div class="space-y-4 sm:space-y-6 mb-6 sm:mb-8">
++    <!-- Work Queue -->
++    <section class="bg-white rounded border border-gray-200 shadow-sm p-4 sm:p-6">
++        <h3 class="font-serif font-bold text-base text-gray-900 mb-4">Work Queue</h3>
++        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
++            <a href="<?= e(Orders::adminOrdersUrl(['payment' => 'awaiting'])); ?>" class="block p-4 rounded border border-gray-200 hover:border-[#4c1719] hover:bg-[#f6f3eb]/50 transition-colors">
++                <p class="text-[10px] tracking-wider font-bold text-gray-500 uppercase">Awaiting Payment</p>
++                <p class="text-2xl font-serif font-bold text-[#4c1719] mt-1"><?= (int) $analytics['awaiting_payment']; ?></p>
++                <p class="text-[11px] text-[#4c1719] font-semibold mt-2">View orders ΓåÆ</p>
++            </a>
++            <a href="<?= e(Orders::adminOrdersUrl(['status' => 'pending'])); ?>" class="block p-4 rounded border border-gray-200 hover:border-amber-600 hover:bg-[#f6f3eb]/50 transition-colors">
++                <p class="text-[10px] tracking-wider font-bold text-gray-500 uppercase">Pending</p>
++                <p class="text-2xl font-serif font-bold text-amber-700 mt-1"><?= (int) $analytics['by_status']['pending']; ?></p>
++                <p class="text-[11px] text-[#4c1719] font-semibold mt-2">View orders ΓåÆ</p>
++            </a>
++            <a href="<?= e(Orders::adminOrdersUrl(['status' => 'processing'])); ?>" class="block p-4 rounded border border-gray-200 hover:border-blue-600 hover:bg-[#f6f3eb]/50 transition-colors">
++                <p class="text-[10px] tracking-wider font-bold text-gray-500 uppercase">Processing</p>
++                <p class="text-2xl font-serif font-bold text-blue-700 mt-1"><?= (int) $analytics['by_status']['processing']; ?></p>
++                <p class="text-[11px] text-[#4c1719] font-semibold mt-2">View orders ΓåÆ</p>
++            </a>
++        </div>
++    </section>
++
++    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
++        <!-- Status Mix -->
++        <section class="bg-white rounded border border-gray-200 shadow-sm p-4 sm:p-6">
++            <h3 class="font-serif font-bold text-base text-gray-900 mb-4">Status Mix</h3>
++            <p class="text-[11px] text-gray-500 mb-4"><?= (int) $statusTotal; ?> total orders</p>
++            <div class="space-y-3">
++                <?php
++                $statusBars = [
++                    'pending'    => ['label' => 'Pending', 'color' => 'bg-amber-500'],
++                    'processing' => ['label' => 'Processing', 'color' => 'bg-blue-500'],
++                    'delivered'  => ['label' => 'Delivered', 'color' => 'bg-emerald-500'],
++                    'cancelled'  => ['label' => 'Cancelled', 'color' => 'bg-gray-400'],
++                ];
++                foreach ($statusBars as $key => $meta):
++                    $count = (int) $analytics['by_status'][$key];
++                    $pct = $statusPct($key);
++                ?>
++                    <div>
++                        <div class="flex justify-between text-xs text-gray-700 mb-1">
++                            <span><?= e($meta['label']); ?> (<?= $count; ?>)</span>
++                            <span><?= $pct; ?>%</span>
++                        </div>
++                        <div class="h-2 bg-gray-100 rounded overflow-hidden" role="img" aria-label="<?= e($meta['label']); ?> <?= $pct; ?> percent">
++                            <div class="h-full <?= e($meta['color']); ?>" style="width: <?= $pct; ?>%"></div>
++                        </div>
++                    </div>
++                <?php endforeach; ?>
++            </div>
++        </section>
++
++        <!-- Revenue Window -->
++        <section class="bg-white rounded border border-gray-200 shadow-sm p-4 sm:p-6">
++            <h3 class="font-serif font-bold text-base text-gray-900 mb-4">Revenue Window</h3>
++            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
++                <div class="p-3 rounded bg-[#f6f3eb] border border-gray-200">
++                    <p class="text-[10px] tracking-wider font-bold text-gray-500 uppercase">Last 7 Days</p>
++                    <p class="text-xl font-serif font-bold text-[#4c1719] mt-1"><?= e(Catalog::formatPrice((int) $analytics['revenue_7d_php'])); ?></p>
++                </div>
++                <div class="p-3 rounded bg-[#f6f3eb] border border-gray-200">
++                    <p class="text-[10px] tracking-wider font-bold text-gray-500 uppercase">Last 30 Days</p>
++                    <p class="text-xl font-serif font-bold text-[#4c1719] mt-1"><?= e(Catalog::formatPrice((int) $analytics['revenue_30d_php'])); ?></p>
++                </div>
++                <div class="p-3 rounded bg-[#f6f3eb] border border-gray-200">
++                    <p class="text-[10px] tracking-wider font-bold text-gray-500 uppercase">All Time</p>
++                    <p class="text-xl font-serif font-bold text-[#4c1719] mt-1"><?= e(Catalog::formatPrice((int) $stats['revenue_php'])); ?></p>
++                </div>
++            </div>
++            <p class="text-[11px] text-gray-400 mt-3">Excludes cancelled orders</p>
++        </section>
++    </div>
++
++    <!-- How Customers Order -->
++    <section class="bg-white rounded border border-gray-200 shadow-sm p-4 sm:p-6">
++        <h3 class="font-serif font-bold text-base text-gray-900 mb-4">How Customers Order</h3>
++        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
++            <div>
++                <p class="text-[10px] tracking-wider font-bold text-gray-500 uppercase mb-3">Fulfillment</p>
++                <div class="space-y-3">
++                    <?php
++                    $fulfillmentBars = [
++                        'pickup'   => ['label' => 'Pickup', 'color' => 'bg-[#4c1719]'],
++                        'delivery' => ['label' => 'Delivery', 'color' => 'bg-[#8c7853]'],
++                    ];
++                    foreach ($fulfillmentBars as $key => $meta):
++                        $count = (int) $analytics['by_fulfillment'][$key];
++                        $pct = $fulfillmentPct($key);
++                    ?>
++                        <div>
++                            <div class="flex justify-between text-xs text-gray-700 mb-1">
++                                <span><?= e($meta['label']); ?> (<?= $count; ?>)</span>
++                                <span><?= $pct; ?>%</span>
++                            </div>
++                            <div class="h-2 bg-gray-100 rounded overflow-hidden" role="img" aria-label="<?= e($meta['label']); ?> <?= $pct; ?> percent">
++                                <div class="h-full <?= e($meta['color']); ?>" style="width: <?= $pct; ?>%"></div>
++                            </div>
++                        </div>
++                    <?php endforeach; ?>
++                </div>
++            </div>
++            <div>
++                <p class="text-[10px] tracking-wider font-bold text-gray-500 uppercase mb-3">Payment Method</p>
++                <div class="space-y-3">
++                    <?php
++                    $paymentColors = [
++                        'Pay at Shop' => 'bg-[#4c1719]',
++                        'GCash'       => 'bg-blue-500',
++                        'BDO'         => 'bg-emerald-600',
++                        'BPI'         => 'bg-amber-600',
++                    ];
++                    foreach (Orders::PAYMENTS as $method):
++                        $count = (int) $analytics['by_payment_method'][$method];
++                        $pct = $paymentPct($method);
++                        $color = $paymentColors[$method] ?? 'bg-gray-500';
++                    ?>
++                        <div>
++                            <div class="flex justify-between text-xs text-gray-700 mb-1">
++                                <span><?= e($method); ?> (<?= $count; ?>)</span>
++                                <span><?= $pct; ?>%</span>
++                            </div>
++                            <div class="h-2 bg-gray-100 rounded overflow-hidden" role="img" aria-label="<?= e($method); ?> <?= $pct; ?> percent">
++                                <div class="h-full <?= e($color); ?>" style="width: <?= $pct; ?>%"></div>
++                            </div>
++                        </div>
++                    <?php endforeach; ?>
++                </div>
++            </div>
++        </div>
++    </section>
++
++    <!-- Top Products -->
++    <section class="bg-white rounded border border-gray-200 shadow-sm p-4 sm:p-6">
++        <h3 class="font-serif font-bold text-base text-gray-900 mb-4">Top Products</h3>
++        <?php if ($analytics['top_products'] === []): ?>
++            <p class="text-sm text-gray-500">No sales yet.</p>
++        <?php else: ?>
++            <div class="divide-y divide-gray-100">
++                <?php foreach ($analytics['top_products'] as $i => $product): ?>
++                    <div class="py-3 flex items-center justify-between gap-3">
++                        <div class="flex items-center gap-3 min-w-0">
++                            <span class="flex-shrink-0 w-6 h-6 rounded-full bg-[#4c1719] text-white text-xs font-bold flex items-center justify-center"><?= $i + 1; ?></span>
++                            <p class="font-serif font-bold text-sm text-gray-900 truncate"><?= e($product['name']); ?></p>
++                        </div>
++                        <div class="text-right flex-shrink-0">
++                            <p class="text-xs text-gray-500"><?= (int) $product['qty']; ?> sold</p>
++                            <p class="font-serif font-bold text-sm text-[#4c1719]"><?= e(Catalog::formatPrice((int) $product['revenue_php'])); ?></p>
++                        </div>
++                    </div>
++                <?php endforeach; ?>
++            </div>
++        <?php endif; ?>
++    </section>
++</div>
++
++<!-- Bottom Split Panels: Recent Orders & Stock Alerts -->
++<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-8">
++    <!-- Recent Orders Panel -->
++    <div class="lg:col-span-2 bg-white rounded border border-gray-200 shadow-sm p-4 sm:p-6">
++        <div class="flex justify-between items-center mb-6">
++            <h3 class="font-serif font-bold text-base text-gray-900">Recent Orders</h3>
++            <a href="admin.php?tab=orders" class="text-xs text-[#4c1719] font-semibold hover:underline">View all ΓåÆ</a>
++        </div>
++        <div class="divide-y divide-gray-100">
++            <?php if ($recentOrders === []): ?>
++                <p class="py-4 text-sm text-gray-500">No orders yet.</p>
++            <?php else: ?>
++                <?php foreach ($recentOrders as $ord): ?>
++                    <div class="py-4 flex justify-between items-center gap-3">
++                        <div class="min-w-0">
++                            <h4 class="font-bold text-sm text-gray-900"><?= e($ord['customer_name']); ?></h4>
++                            <p class="text-xs text-gray-400"><?= e($ord['public_code']); ?></p>
++                        </div>
++                        <div class="text-right">
++                            <p class="font-serif font-bold text-sm text-[#4c1719]"><?= e(Catalog::formatPrice((int) $ord['total_php'])); ?></p>
++                            <span class="text-[11px] font-semibold <?= e(Orders::statusTextClasses((string) $ord['status'])); ?>"><?= e(Orders::statusLabel((string) $ord['status'])); ?></span>
++                        </div>
++                    </div>
++                <?php endforeach; ?>
++            <?php endif; ?>
++        </div>
++    </div>
++
++    <!-- Stock Alerts Panel -->
++    <div class="bg-white rounded border border-gray-200 shadow-sm p-4 sm:p-6">
++        <div class="flex justify-between items-center mb-6">
++            <h3 class="font-serif font-bold text-base text-gray-900">Stock Alerts</h3>
++            <a href="admin.php?tab=inventory" class="text-xs text-[#4c1719] font-semibold hover:underline">Manage ΓåÆ</a>
++        </div>
++        <div class="space-y-4">
++            <?php if ($lowStock === []): ?>
++                <p class="text-sm text-gray-500">All products are sufficiently stocked.</p>
++            <?php else: ?>
++                <?php foreach ($lowStock as $p): ?>
++                    <div class="flex items-center justify-between gap-3 pb-3 border-b border-gray-100">
++                        <img src="<?= e(kd_image_url($p['image_path'])); ?>" alt="<?= e($p['name']); ?>" class="w-10 h-10 object-cover rounded border">
++                        <div class="flex-1 min-w-0">
++                            <h4 class="font-serif font-bold text-xs text-gray-900 truncate"><?= e($p['name']); ?></h4>
++                            <p class="text-[10px] text-gray-400 uppercase"><?= e(Catalog::categoryLabel($p['category'])); ?></p>
++                        </div>
++                        <span class="text-xs font-bold text-amber-700"><?= (int) $p['stock']; ?> left</span>
++                    </div>
++                <?php endforeach; ?>
++            <?php endif; ?>
++        </div>
++    </div>
++</div>
+
+## New file: tests/OrdersAnalyticsTest.php
+
+diff --git a/tests/OrdersAnalyticsTest.php b/tests/OrdersAnalyticsTest.php
+new file mode 100644
+index 0000000..3031d73
+--- /dev/null
++++ b/tests/OrdersAnalyticsTest.php
+@@ -0,0 +1,179 @@
++<?php
++declare(strict_types=1);
++
++use PHPUnit\Framework\TestCase;
++
++final class OrdersAnalyticsTest extends TestCase
++{
++    private ?PDO $pdo = null;
++
++    /** @var list<int> */
++    private array $orderIds = [];
++
++    /** @var list<int> */
++    private array $productIds = [];
++
++    private int $userId = 0;
++
++    protected function setUp(): void
++    {
++        require_once dirname(__DIR__) . '/config/bootstrap.php';
++        require_once dirname(__DIR__) . '/src/Auth.php';
++        require_once dirname(__DIR__) . '/src/Orders.php';
++
++        try {
++            $this->pdo = db();
++            $this->pdo->query('SELECT 1');
++        } catch (Throwable $e) {
++            $this->markTestSkipped('Database unreachable.');
++        }
++    }
++
++    protected function tearDown(): void
++    {
++        if ($this->pdo === null) {
++            return;
++        }
++
++        try {
++            foreach ($this->orderIds as $orderId) {
++                $stmt = $this->pdo->prepare('DELETE FROM order_items WHERE order_id = :id');
++                $stmt->execute([':id' => $orderId]);
++                $stmt = $this->pdo->prepare('DELETE FROM orders WHERE id = :id');
++                $stmt->execute([':id' => $orderId]);
++            }
++            foreach ($this->productIds as $productId) {
++                $stmt = $this->pdo->prepare('DELETE FROM products WHERE id = :id');
++                $stmt->execute([':id' => $productId]);
++            }
++            if ($this->userId > 0) {
++                $stmt = $this->pdo->prepare('DELETE FROM users WHERE id = :id');
++                $stmt->execute([':id' => $this->userId]);
++            }
++        } catch (Throwable $e) {
++            // Cleanup best-effort.
++        }
++    }
++
++    public function testAnalyticsReturnsExpectedShape(): void
++    {
++        $analytics = Orders::analytics();
++
++        $this->assertArrayHasKey('awaiting_payment', $analytics);
++        $this->assertArrayHasKey('paid_count', $analytics);
++        $this->assertArrayHasKey('by_status', $analytics);
++        $this->assertArrayHasKey('revenue_7d_php', $analytics);
++        $this->assertArrayHasKey('revenue_30d_php', $analytics);
++        $this->assertArrayHasKey('by_fulfillment', $analytics);
++        $this->assertArrayHasKey('by_payment_method', $analytics);
++        $this->assertArrayHasKey('top_products', $analytics);
++
++        $this->assertIsInt($analytics['awaiting_payment']);
++        $this->assertIsInt($analytics['paid_count']);
++        $this->assertIsInt($analytics['revenue_7d_php']);
++        $this->assertIsInt($analytics['revenue_30d_php']);
++        $this->assertGreaterThanOrEqual(0, $analytics['awaiting_payment']);
++        $this->assertGreaterThanOrEqual(0, $analytics['paid_count']);
++        $this->assertGreaterThanOrEqual(0, $analytics['revenue_7d_php']);
++        $this->assertGreaterThanOrEqual(0, $analytics['revenue_30d_php']);
++
++        $this->assertSame(['pending', 'processing', 'delivered', 'cancelled'], array_keys($analytics['by_status']));
++        foreach ($analytics['by_status'] as $count) {
++            $this->assertIsInt($count);
++            $this->assertGreaterThanOrEqual(0, $count);
++        }
++
++        $this->assertSame(['pickup', 'delivery'], array_keys($analytics['by_fulfillment']));
++        foreach ($analytics['by_fulfillment'] as $count) {
++            $this->assertIsInt($count);
++            $this->assertGreaterThanOrEqual(0, $count);
++        }
++
++        $this->assertSame(['Pay at Shop', 'GCash', 'BDO', 'BPI'], array_keys($analytics['by_payment_method']));
++        foreach ($analytics['by_payment_method'] as $count) {
++            $this->assertIsInt($count);
++            $this->assertGreaterThanOrEqual(0, $count);
++        }
++
++        $this->assertIsArray($analytics['top_products']);
++        $this->assertLessThanOrEqual(5, count($analytics['top_products']));
++        foreach ($analytics['top_products'] as $row) {
++            $this->assertArrayHasKey('name', $row);
++            $this->assertArrayHasKey('qty', $row);
++            $this->assertArrayHasKey('revenue_php', $row);
++            $this->assertIsString($row['name']);
++            $this->assertIsInt($row['qty']);
++            $this->assertIsInt($row['revenue_php']);
++            $this->assertGreaterThanOrEqual(0, $row['qty']);
++            $this->assertGreaterThanOrEqual(0, $row['revenue_php']);
++        }
++    }
++
++    public function testAnalyticsSeparatesAwaitingAndPaidExcludingCancelled(): void
++    {
++        $before = Orders::analytics();
++
++        $this->createOrder('pending', null);
++        $this->createOrder('processing', date('Y-m-d H:i:s'));
++        $this->createOrder('cancelled', null);
++
++        $analytics = Orders::analytics();
++
++        $this->assertSame($before['awaiting_payment'] + 1, $analytics['awaiting_payment']);
++        $this->assertSame($before['paid_count'] + 1, $analytics['paid_count']);
++        $this->assertSame($before['by_status']['cancelled'] + 1, $analytics['by_status']['cancelled']);
++    }
++
++    private function createOrder(string $status, ?string $paymentReceivedAt): int
++    {
++        $this->userId = $this->userId > 0 ? $this->userId : Auth::createCustomer(
++            'Analytics Test',
++            'analytics-' . bin2hex(random_bytes(4)) . '@kdesigns.test',
++            'AnalyticsTest-2026'
++        );
++
++        $slug = 'analytics-' . bin2hex(random_bytes(6));
++        $stmt = $this->pdo->prepare(
++            'INSERT INTO products (name, slug, category, description, price_php, image_path, stock, is_active)
++             VALUES (:name, :slug, :category, :description, :price_php, :image_path, :stock, 1)'
++        );
++        $stmt->execute([
++            ':name'        => 'Analytics Bouquet',
++            ':slug'        => $slug,
++            ':category'    => 'fresh',
++            ':description' => 'Analytics test product',
++            ':price_php'   => 1500,
++            ':image_path'  => 'images/logo.png',
++            ':stock'       => 10,
++        ]);
++        $productId = (int) $this->pdo->lastInsertId();
++        $this->productIds[] = $productId;
++
++        $order = Orders::create([
++            'user_id'          => $this->userId,
++            'product_id'       => $productId,
++            'qty'              => 1,
++            'fulfillment'      => 'pickup',
++            'payment_method'   => 'GCash',
++            'receipt_ref'      => 'KDTESTAN1',
++            'customer_name'    => 'Analytics Tester',
++            'customer_contact' => '09171111111',
++            'date_needed'      => (new DateTimeImmutable('today'))->format('Y-m-d'),
++        ]);
++        $orderId = (int) $order['id'];
++        $this->orderIds[] = $orderId;
++
++        if ($status !== 'pending') {
++            Orders::updateStatus($orderId, $status);
++        }
++
++        if ($paymentReceivedAt !== null) {
++            $payStmt = $this->pdo->prepare(
++                'UPDATE orders SET payment_received_at = :paid_at WHERE id = :id'
++            );
++            $payStmt->execute([':paid_at' => $paymentReceivedAt, ':id' => $orderId]);
++        }
++
++        return $orderId;
++    }
++}
+
+## Diff src/Orders.php (includes prior tasks)
+
+diff --git a/src/Orders.php b/src/Orders.php
+index a2d5153..211600c 100644
+--- a/src/Orders.php
++++ b/src/Orders.php
+@@ -7,16 +7,22 @@ require_once __DIR__ . '/Mailer.php';
+ final class Orders
+ {
+     public const STATUSES = ['pending', 'processing', 'delivered', 'cancelled'];
+ 
+     public const PAYMENTS = ['Pay at Shop', 'GCash', 'BDO', 'BPI'];
+ 
+     public const FULFILLMENTS = ['pickup', 'delivery'];
+ 
++    /** @var list<string> */
++    public const ADMIN_STATUS_FILTERS = ['all', 'pending', 'processing', 'delivered', 'cancelled'];
++
++    /** @var list<string> */
++    public const ADMIN_PAYMENT_FILTERS = ['all', 'awaiting', 'recorded'];
++
+     private const AVAILABILITY_ERROR = 'This item is no longer available.';
+ 
+     /** @param array<string,mixed> $input */
+     public static function create(array $input): array
+     {
+         $validated = self::validateCreateInput($input);
+         $pdo = db();
+ 
+@@ -167,28 +173,79 @@ final class Orders
+         $itemsByOrder = self::loadItemsForOrders($orderIds);
+         foreach ($itemsByOrder as $orderId => $items) {
+             $orders[$orderId]['items'] = $items;
+         }
+ 
+         return array_values($orders);
+     }
+ 
+-    /** @return list<array<string,mixed>> */
+-    public static function allForAdmin(): array
++    /** @param array<string,mixed> $raw @return array{status: string, payment: string} */
++    public static function normalizeAdminFilters(array $raw): array
+     {
+-        $stmt = db()->query(
+-            'SELECT o.id, o.public_code, o.user_id, u.email AS user_email,
++        $status = strtolower(trim((string) ($raw['status'] ?? 'all')));
++        if (!in_array($status, self::ADMIN_STATUS_FILTERS, true)) {
++            $status = 'all';
++        }
++
++        $payment = strtolower(trim((string) ($raw['payment'] ?? 'all')));
++        if (!in_array($payment, self::ADMIN_PAYMENT_FILTERS, true)) {
++            $payment = 'all';
++        }
++
++        return [
++            'status'  => $status,
++            'payment' => $payment,
++        ];
++    }
++
++    /** @param array{status?: string, payment?: string} $filters */
++    public static function adminOrdersUrl(array $filters = []): string
++    {
++        $filters = self::normalizeAdminFilters($filters);
++        $params = ['tab' => 'orders'];
++        if ($filters['status'] !== 'all') {
++            $params['status'] = $filters['status'];
++        }
++        if ($filters['payment'] !== 'all') {
++            $params['payment'] = $filters['payment'];
++        }
++
++        return 'admin.php?' . http_build_query($params);
++    }
++
++    /** @param array<string,mixed> $filters @return list<array<string,mixed>> */
++    public static function allForAdmin(array $filters = []): array
++    {
++        $filters = self::normalizeAdminFilters($filters);
++
++        $sql = 'SELECT o.id, o.public_code, o.user_id, u.email AS user_email,
+                     o.customer_name, o.fulfillment, o.payment_method, o.receipt_ref,
+                     o.payment_received_at, o.status, o.date_needed, o.time_needed,
+                     o.total_php, o.created_at
+              FROM orders o
+              INNER JOIN users u ON u.id = o.user_id
+-             ORDER BY o.created_at DESC, o.id DESC'
+-        );
++             WHERE 1=1';
++        $params = [];
++
++        if ($filters['status'] !== 'all') {
++            $sql .= ' AND o.status = :status';
++            $params[':status'] = $filters['status'];
++        }
++
++        if ($filters['payment'] === 'awaiting') {
++            $sql .= ' AND o.payment_received_at IS NULL';
++        } elseif ($filters['payment'] === 'recorded') {
++            $sql .= ' AND o.payment_received_at IS NOT NULL';
++        }
++
++        $sql .= ' ORDER BY o.created_at DESC, o.id DESC';
++
++        $stmt = db()->prepare($sql);
++        $stmt->execute($params);
+ 
+         $rows = $stmt->fetchAll();
+         if ($rows === []) {
+             return [];
+         }
+ 
+         $orders = [];
+         $orderIds = [];
+@@ -271,43 +328,19 @@ final class Orders
+ 
+             $oldStatus = (string) $order['status'];
+ 
+             if ($oldStatus === $status) {
+                 $pdo->commit();
+                 return;
+             }
+ 
+-            $itemStmt = $pdo->prepare(
+-                'SELECT product_id, qty
+-                 FROM order_items
+-                 WHERE order_id = :order_id'
+-            );
+-            $itemStmt->execute([':order_id' => $orderId]);
+-            $items = $itemStmt->fetchAll();
+-            self::lockProductsForItems($pdo, $items);
+-
+-            if ($status === 'cancelled' && $oldStatus !== 'cancelled') {
+-                self::restockItems($pdo, $items);
+-            } elseif ($oldStatus === 'cancelled' && $status !== 'cancelled') {
+-                self::decrementItems($pdo, $items);
+-            }
+-
+-            $updateStmt = $pdo->prepare(
+-                'UPDATE orders
+-                 SET status = :status
+-                 WHERE id = :id'
+-            );
+-            $updateStmt->execute([
+-                ':status' => $status,
+-                ':id'     => $orderId,
+-            ]);
++            $changed = self::applyStatusChange($pdo, $orderId, $oldStatus, $status);
+ 
+             $pdo->commit();
+-            $changed = true;
+         } catch (PDOException $e) {
+             if ($pdo->inTransaction()) {
+                 $pdo->rollBack();
+             }
+ 
+             throw $e;
+         } catch (RuntimeException $e) {
+             if ($pdo->inTransaction()) {
+@@ -324,32 +357,104 @@ final class Orders
+                     Mailer::statusChanged($fresh, $oldStatus, $status);
+                 }
+             } catch (Throwable $e) {
+                 // Mail must never undo a committed status change.
+             }
+         }
+     }
+ 
+-    public static function markPaymentReceived(int $orderId): void
++    public static function markPaymentReceived(int $orderId): array
+     {
+         if ($orderId < 1) {
+             throw new InvalidArgumentException('Invalid order.');
+         }
+ 
+-        if (self::findById($orderId) === null) {
++        $pdo = db();
++        $oldStatus = '';
++        $statusChanged = false;
++
++        try {
++            $pdo->beginTransaction();
++
++            $stmt = $pdo->prepare(
++                'SELECT id, status, payment_received_at
++                 FROM orders
++                 WHERE id = :id
++                 FOR UPDATE'
++            );
++            $stmt->execute([':id' => $orderId]);
++            $order = $stmt->fetch();
++
++            if ($order === false) {
++                $pdo->rollBack();
++                throw new RuntimeException('Order not found.');
++            }
++
++            $oldStatus = (string) $order['status'];
++
++            if ($oldStatus === 'cancelled') {
++                $pdo->rollBack();
++                throw new InvalidArgumentException('Cancelled orders cannot be marked paid.');
++            }
++
++            if ($order['payment_received_at'] !== null) {
++                $pdo->commit();
++
++                $current = self::findById($orderId);
++                if ($current === null) {
++                    throw new RuntimeException('Order not found.');
++                }
++
++                return $current;
++            }
++
++            $payStmt = $pdo->prepare(
++                'UPDATE orders
++                 SET payment_received_at = NOW()
++                 WHERE id = :id'
++            );
++            $payStmt->execute([':id' => $orderId]);
++
++            if ($oldStatus === 'pending') {
++                $statusChanged = self::applyStatusChange($pdo, $orderId, $oldStatus, 'processing');
++            }
++
++            $pdo->commit();
++        } catch (PDOException $e) {
++            if ($pdo->inTransaction()) {
++                $pdo->rollBack();
++            }
++
++            throw $e;
++        } catch (RuntimeException | InvalidArgumentException $e) {
++            if ($pdo->inTransaction()) {
++                $pdo->rollBack();
++            }
++
++            throw $e;
++        }
++
++        if ($statusChanged) {
++            try {
++                $fresh = self::findById($orderId);
++                if ($fresh !== null) {
++                    Mailer::statusChanged($fresh, $oldStatus, 'processing');
++                }
++            } catch (Throwable $e) {
++                // Mail must never undo a committed status change.
++            }
++        }
++
++        $updated = self::findById($orderId);
++        if ($updated === null) {
+             throw new RuntimeException('Order not found.');
+         }
+ 
+-        $stmt = db()->prepare(
+-            'UPDATE orders
+-             SET payment_received_at = NOW()
+-             WHERE id = :id AND payment_received_at IS NULL'
+-        );
+-        $stmt->execute([':id' => $orderId]);
++        return $updated;
+     }
+ 
+     public static function normalizeStatus(string $raw): string
+     {
+         $normalized = strtolower(trim($raw));
+ 
+         return match ($normalized) {
+             'pending'    => 'pending',
+@@ -404,16 +509,137 @@ final class Orders
+         return match (self::statusTone($status)) {
+             'emerald' => 'text-emerald-600',
+             'blue'    => 'text-blue-600',
+             'gray'    => 'text-gray-600',
+             default   => 'text-amber-600',
+         };
+     }
+ 
++    /**
++     * @return array{
++     *   awaiting_payment: int,
++     *   paid_count: int,
++     *   by_status: array{pending: int, processing: int, delivered: int, cancelled: int},
++     *   revenue_7d_php: int,
++     *   revenue_30d_php: int,
++     *   by_fulfillment: array{pickup: int, delivery: int},
++     *   by_payment_method: array{Pay at Shop: int, GCash: int, BDO: int, BPI: int},
++     *   top_products: list<array{name: string, qty: int, revenue_php: int}>
++     * }
++     */
++    public static function analytics(
++        ?DateTimeImmutable $since7d = null,
++        ?DateTimeImmutable $since30d = null
++    ): array {
++        $since7d ??= new DateTimeImmutable('-7 days');
++        $since30d ??= new DateTimeImmutable('-30 days');
++
++        $stmt = db()->prepare(
++            'SELECT
++                SUM(CASE WHEN payment_received_at IS NULL AND status <> \'cancelled\' THEN 1 ELSE 0 END) AS awaiting_payment,
++                SUM(CASE WHEN payment_received_at IS NOT NULL AND status <> \'cancelled\' THEN 1 ELSE 0 END) AS paid_count,
++                SUM(CASE WHEN status = \'pending\' THEN 1 ELSE 0 END) AS pending,
++                SUM(CASE WHEN status = \'processing\' THEN 1 ELSE 0 END) AS processing,
++                SUM(CASE WHEN status = \'delivered\' THEN 1 ELSE 0 END) AS delivered,
++                SUM(CASE WHEN status = \'cancelled\' THEN 1 ELSE 0 END) AS cancelled,
++                COALESCE(SUM(CASE WHEN status <> \'cancelled\' AND created_at >= :since7d THEN total_php ELSE 0 END), 0) AS revenue_7d,
++                COALESCE(SUM(CASE WHEN status <> \'cancelled\' AND created_at >= :since30d THEN total_php ELSE 0 END), 0) AS revenue_30d,
++                SUM(CASE WHEN status <> \'cancelled\' AND fulfillment = \'pickup\' THEN 1 ELSE 0 END) AS pickup,
++                SUM(CASE WHEN status <> \'cancelled\' AND fulfillment = \'delivery\' THEN 1 ELSE 0 END) AS delivery,
++                SUM(CASE WHEN status <> \'cancelled\' AND payment_method = \'Pay at Shop\' THEN 1 ELSE 0 END) AS pay_at_shop,
++                SUM(CASE WHEN status <> \'cancelled\' AND payment_method = \'GCash\' THEN 1 ELSE 0 END) AS gcash,
++                SUM(CASE WHEN status <> \'cancelled\' AND payment_method = \'BDO\' THEN 1 ELSE 0 END) AS bdo,
++                SUM(CASE WHEN status <> \'cancelled\' AND payment_method = \'BPI\' THEN 1 ELSE 0 END) AS bpi
++             FROM orders'
++        );
++        $stmt->execute([
++            ':since7d'  => $since7d->format('Y-m-d H:i:s'),
++            ':since30d' => $since30d->format('Y-m-d H:i:s'),
++        ]);
++
++        $row = $stmt->fetch();
++        if ($row === false) {
++            return self::emptyAnalytics();
++        }
++
++        $topStmt = db()->query(
++            'SELECT oi.product_name_snapshot AS name,
++                    SUM(oi.qty) AS qty,
++                    COALESCE(SUM(oi.qty * oi.unit_price_php_snapshot), 0) AS revenue_php
++             FROM order_items oi
++             INNER JOIN orders o ON o.id = oi.order_id
++             WHERE o.status <> \'cancelled\'
++             GROUP BY oi.product_name_snapshot
++             ORDER BY qty DESC, revenue_php DESC, oi.product_name_snapshot ASC
++             LIMIT 5'
++        );
++
++        $topProducts = [];
++        foreach ($topStmt->fetchAll() as $productRow) {
++            $topProducts[] = [
++                'name'        => (string) $productRow['name'],
++                'qty'         => (int) $productRow['qty'],
++                'revenue_php' => (int) $productRow['revenue_php'],
++            ];
++        }
++
++        return [
++            'awaiting_payment' => (int) $row['awaiting_payment'],
++            'paid_count'       => (int) $row['paid_count'],
++            'by_status'        => [
++                'pending'    => (int) $row['pending'],
++                'processing' => (int) $row['processing'],
++                'delivered'  => (int) $row['delivered'],
++                'cancelled'  => (int) $row['cancelled'],
++            ],
++            'revenue_7d_php'   => (int) $row['revenue_7d'],
++            'revenue_30d_php'  => (int) $row['revenue_30d'],
++            'by_fulfillment'   => [
++                'pickup'   => (int) $row['pickup'],
++                'delivery' => (int) $row['delivery'],
++            ],
++            'by_payment_method' => [
++                'Pay at Shop' => (int) $row['pay_at_shop'],
++                'GCash'       => (int) $row['gcash'],
++                'BDO'         => (int) $row['bdo'],
++                'BPI'         => (int) $row['bpi'],
++            ],
++            'top_products' => $topProducts,
++        ];
++    }
++
++    /** @return array{awaiting_payment: int, paid_count: int, by_status: array{pending: int, processing: int, delivered: int, cancelled: int}, revenue_7d_php: int, revenue_30d_php: int, by_fulfillment: array{pickup: int, delivery: int}, by_payment_method: array{Pay at Shop: int, GCash: int, BDO: int, BPI: int}, top_products: list<array{name: string, qty: int, revenue_php: int}>} */
++    private static function emptyAnalytics(): array
++    {
++        return [
++            'awaiting_payment' => 0,
++            'paid_count'       => 0,
++            'by_status'        => [
++                'pending'    => 0,
++                'processing' => 0,
++                'delivered'  => 0,
++                'cancelled'  => 0,
++            ],
++            'revenue_7d_php'   => 0,
++            'revenue_30d_php'  => 0,
++            'by_fulfillment'   => [
++                'pickup'   => 0,
++                'delivery' => 0,
++            ],
++            'by_payment_method' => [
++                'Pay at Shop' => 0,
++                'GCash'       => 0,
++                'BDO'         => 0,
++                'BPI'         => 0,
++            ],
++            'top_products' => [],
++        ];
++    }
++
+     /** @return array{revenue_php: int, order_count: int, pending_count: int, buyer_count: int, avg_order_php: int} */
+     public static function stats(): array
+     {
+         $stmt = db()->query(
+             'SELECT
+                 COALESCE(SUM(CASE WHEN status <> \'cancelled\' THEN total_php ELSE 0 END), 0) AS revenue_php,
+                 COUNT(*) AS order_count,
+                 SUM(CASE WHEN status = \'pending\' THEN 1 ELSE 0 END) AS pending_count,
+@@ -755,16 +981,54 @@ final class Orders
+             }
+ 
+             $labels[$userId] .= ' ┬╖ ' . $part;
+         }
+ 
+         return $labels;
+     }
+ 
++    private static function applyStatusChange(
++        PDO $pdo,
++        int $orderId,
++        string $oldStatus,
++        string $newStatus
++    ): bool {
++        if ($oldStatus === $newStatus) {
++            return false;
++        }
++
++        $itemStmt = $pdo->prepare(
++            'SELECT product_id, qty
++             FROM order_items
++             WHERE order_id = :order_id'
++        );
++        $itemStmt->execute([':order_id' => $orderId]);
++        $items = $itemStmt->fetchAll();
++        self::lockProductsForItems($pdo, $items);
++
++        if ($newStatus === 'cancelled' && $oldStatus !== 'cancelled') {
++            self::restockItems($pdo, $items);
++        } elseif ($oldStatus === 'cancelled' && $newStatus !== 'cancelled') {
++            self::decrementItems($pdo, $items);
++        }
++
++        $updateStmt = $pdo->prepare(
++            'UPDATE orders
++             SET status = :status
++             WHERE id = :id'
++        );
++        $updateStmt->execute([
++            ':status' => $newStatus,
++            ':id'     => $orderId,
++        ]);
++
++        return true;
++    }
++
+     /** @param list<array<string,mixed>> $items */
+     private static function lockProductsForItems(PDO $pdo, array $items): void
+     {
+         $productIds = [];
+         foreach ($items as $item) {
+             $productId = (int) ($item['product_id'] ?? 0);
+             if ($productId > 0) {
+                 $productIds[$productId] = $productId;
+
+## Diff public/admin.php (includes prior tasks)
+
+diff --git a/public/admin.php b/public/admin.php
+index 0edecd2..0a9af58 100644
+--- a/public/admin.php
++++ b/public/admin.php
+@@ -12,46 +12,71 @@ Auth::requireAdmin();
+ check_session_timeout(1800);
+ 
+ $tab = $_GET['tab'] ?? 'overview';
+ $allowed_tabs = ['overview', 'orders', 'inventory', 'buyers'];
+ if (!in_array($tab, $allowed_tabs, true)) {
+     $tab = 'overview';
+ }
+ 
++$orderFilterRaw = [
++    'status'  => $_GET['status'] ?? 'all',
++    'payment' => $_GET['payment'] ?? 'all',
++];
++if ($_SERVER['REQUEST_METHOD'] === 'POST') {
++    if (array_key_exists('filter_status', $_POST)) {
++        $orderFilterRaw['status'] = (string) $_POST['filter_status'];
++    }
++    if (array_key_exists('filter_payment', $_POST)) {
++        $orderFilterRaw['payment'] = (string) $_POST['filter_payment'];
++    }
++}
++$orderFilters = Orders::normalizeAdminFilters($orderFilterRaw);
++$ordersTabUrl = Orders::adminOrdersUrl($orderFilters);
++
+ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+     enforce_csrf();
+     if (isset($_POST['update_order_status'])) {
+         $orderId = filter_var($_POST['order_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+         $newStatus = Orders::normalizeStatus((string) ($_POST['new_status'] ?? ''));
+ 
+         if ($orderId !== false && in_array($newStatus, Orders::STATUSES, true)) {
+             try {
+                 Orders::updateStatus((int) $orderId, $newStatus);
+             } catch (InvalidArgumentException | RuntimeException $e) {
+                 $_SESSION['admin_flash_error'] = $e->getMessage();
+             } catch (PDOException $e) {
+                 $_SESSION['admin_flash_error'] = 'Could not update that order. Please try again.';
+             }
+         }
+ 
+-        kd_redirect('admin.php?tab=orders');
++        kd_redirect($ordersTabUrl);
+     }
+     if (isset($_POST['confirm_payment'])) {
+         $orderId = filter_var($_POST['order_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+         if ($orderId !== false) {
+             try {
+-                Orders::markPaymentReceived((int) $orderId);
++                $before = Orders::findById((int) $orderId);
++                $order = Orders::markPaymentReceived((int) $orderId);
++                if (
++                    $before !== null
++                    && $before['status'] === 'pending'
++                    && ($order['status'] ?? '') === 'processing'
++                ) {
++                    $_SESSION['admin_flash_success'] = 'Payment recorded. Status is now Processing.';
++                } else {
++                    $_SESSION['admin_flash_success'] = 'Payment recorded.';
++                }
+             } catch (InvalidArgumentException | RuntimeException $e) {
+                 $_SESSION['admin_flash_error'] = $e->getMessage();
+             } catch (PDOException $e) {
+                 $_SESSION['admin_flash_error'] = 'Could not record payment. Please try again.';
+             }
+         }
+-        kd_redirect('admin.php?tab=orders');
++        kd_redirect($ordersTabUrl);
+     }
+     if (isset($_POST['restock_item'])) {
+         $pid = filter_var($_POST['product_id'] ?? 0, FILTER_VALIDATE_INT);
+         $qty = filter_var($_POST['restock_qty'] ?? -1, FILTER_VALIDATE_INT);
+         if ($pid !== false && $qty !== false && $qty >= 0 && $qty <= 99999) {
+             try {
+                 Catalog::updateStock((int) $pid, (int) $qty);
+             } catch (InvalidArgumentException | RuntimeException $ex) {
+@@ -64,33 +89,141 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+                     Catalog::updateImage((int) $pid, 'uploads/' . $stored);
+                 } catch (InvalidArgumentException | RuntimeException $ex) {
+                     $_SESSION['admin_flash_error'] = $ex->getMessage();
+                 }
+             }
+         }
+         kd_redirect('admin.php?tab=inventory');
+     }
++    if (isset($_POST['save_product'])) {
++        $productId = filter_var($_POST['product_id'] ?? 0, FILTER_VALIDATE_INT);
++        $input = [
++            'name'        => (string) ($_POST['name'] ?? ''),
++            'category'    => (string) ($_POST['category'] ?? ''),
++            'description' => $_POST['description'] ?? null,
++            'price_php'   => $_POST['price_php'] ?? null,
++            'stock'       => $_POST['stock'] ?? null,
++            'badge'       => $_POST['badge'] ?? null,
++            'is_active'   => isset($_POST['is_active']) ? 1 : 0,
++        ];
++
++        $fileError = (int) ($_FILES['product_image']['error'] ?? UPLOAD_ERR_NO_FILE);
++        if ($fileError !== UPLOAD_ERR_NO_FILE) {
++            try {
++                $stored = Uploads::store($_FILES['product_image']);
++                $input['image_path'] = 'uploads/' . $stored;
++            } catch (InvalidArgumentException | RuntimeException $ex) {
++                $_SESSION['admin_flash_error'] = $ex->getMessage();
++                kd_redirect('admin.php?tab=inventory' . ($productId > 0 ? '&edit=' . $productId : '&new=1'));
++            }
++        } elseif ($productId === false || $productId < 1) {
++            $existingPath = trim((string) ($_POST['image_path'] ?? ''));
++            if ($existingPath !== '') {
++                $input['image_path'] = $existingPath;
++            }
++        }
++
++        try {
++            if ($productId !== false && $productId > 0) {
++                Catalog::update((int) $productId, $input);
++                $_SESSION['admin_flash_success'] = 'Product updated.';
++            } else {
++                Catalog::create($input);
++                $_SESSION['admin_flash_success'] = 'Product created.';
++            }
++        } catch (InvalidArgumentException | RuntimeException $ex) {
++            $_SESSION['admin_flash_error'] = $ex->getMessage();
++            kd_redirect('admin.php?tab=inventory' . ($productId > 0 ? '&edit=' . $productId : '&new=1'));
++        } catch (PDOException $e) {
++            $_SESSION['admin_flash_error'] = 'Could not save that product. Please try again.';
++            kd_redirect('admin.php?tab=inventory' . ($productId > 0 ? '&edit=' . $productId : '&new=1'));
++        }
++
++        kd_redirect('admin.php?tab=inventory');
++    }
++    if (isset($_POST['set_product_active'])) {
++        $pid = filter_var($_POST['product_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
++        $active = filter_var($_POST['is_active'] ?? null, FILTER_VALIDATE_INT);
++        if ($pid !== false && ($active === 0 || $active === 1)) {
++            try {
++                Catalog::setActive((int) $pid, $active === 1);
++                $_SESSION['admin_flash_success'] = $active === 1 ? 'Product is now visible in the shop.' : 'Product hidden from the shop.';
++            } catch (RuntimeException $ex) {
++                $_SESSION['admin_flash_error'] = $ex->getMessage();
++            } catch (PDOException $e) {
++                $_SESSION['admin_flash_error'] = 'Could not update product visibility. Please try again.';
++            }
++        }
++        kd_redirect('admin.php?tab=inventory');
++    }
++    if (isset($_POST['delete_product'])) {
++        $pid = filter_var($_POST['product_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
++        if ($pid !== false) {
++            try {
++                Catalog::deleteIfUnused((int) $pid);
++                $_SESSION['admin_flash_success'] = 'Product permanently deleted.';
++            } catch (InvalidArgumentException | RuntimeException $ex) {
++                $_SESSION['admin_flash_error'] = $ex->getMessage();
++            } catch (PDOException $e) {
++                $_SESSION['admin_flash_error'] = 'Could not delete that product. Please try again.';
++            }
++        }
++        kd_redirect('admin.php?tab=inventory');
++    }
+ }
+ 
+ $stats = Orders::stats();
+-$adminOrders = Orders::allForAdmin();
++$analytics = Orders::analytics();
++$allOrders = Orders::allForAdmin();
++$hasActiveOrderFilters = $orderFilters['status'] !== 'all' || $orderFilters['payment'] !== 'all';
++$adminOrders = ($tab === 'orders' && $hasActiveOrderFilters)
++    ? Orders::allForAdmin($orderFilters)
++    : $allOrders;
+ $buyers = Orders::buyers();
+ $inventory = Catalog::all();
+-$lowStock = array_values(array_filter($inventory, fn($p) => (int) $p['stock'] <= 5));
++$lowStock = array_values(array_filter(
++    $inventory,
++    fn($p) => (int) $p['is_active'] === 1 && (int) $p['stock'] <= 5
++));
++
++$inventoryFormMode = null;
++$editProduct = null;
++if ($tab === 'inventory') {
++    if (array_key_exists('new', $_GET)) {
++        $inventoryFormMode = 'new';
++    } elseif (array_key_exists('edit', $_GET)) {
++        $editId = filter_var($_GET['edit'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
++        if ($editId !== false) {
++            $editProduct = Catalog::findById((int) $editId);
++            if ($editProduct !== null) {
++                $inventoryFormMode = 'edit';
++            }
++        }
++    }
++}
++
+ $flashError = (string) ($_SESSION['admin_flash_error'] ?? '');
+ unset($_SESSION['admin_flash_error']);
++$flashSuccess = (string) ($_SESSION['admin_flash_success'] ?? '');
++unset($_SESSION['admin_flash_success']);
+ 
+ View::render('admin/dashboard', [
+     'pageTitle'     => 'Admin Dashboard - KDesigns Blooms & Styles',
+     'cssBundle'     => 'app',
+     'tab'           => $tab,
+     'stats'         => $stats,
++    'analytics'     => $analytics,
+     'adminOrders'   => $adminOrders,
+     'buyers'        => $buyers,
+     'pendingCount'  => (int) $stats['pending_count'],
+     'inventory'     => $inventory,
+     'lowStock'      => $lowStock,
+     'lowStockCount' => count($lowStock),
+     'activeCount'   => count(array_filter($inventory, fn($p) => (int) $p['is_active'] === 1)),
+-    'recentOrders'  => array_slice($adminOrders, 0, 4),
++    'recentOrders'  => array_slice($allOrders, 0, 4),
+     'flashError'    => $flashError,
++    'flashSuccess'  => $flashSuccess,
++    'orderFilters'  => $orderFilters,
++    'ordersTabUrl'  => $ordersTabUrl,
++    'inventoryFormMode' => $inventoryFormMode,
++    'editProduct'       => $editProduct,
+ ]);
+
+## Diff views/admin/dashboard.php (includes prior tasks; look for overview include)
+
+diff --git a/views/admin/dashboard.php b/views/admin/dashboard.php
+index a08204f..d9011ae 100644
+--- a/views/admin/dashboard.php
++++ b/views/admin/dashboard.php
+@@ -10,153 +10,107 @@ declare(strict_types=1);
+ ]); ?>
+ 
+     <div id="admin-sidebar-overlay" class="fixed inset-0 z-40 bg-black/50 hidden md:hidden"></div>
+ 
+     <!-- MAIN CONTENT AREA -->
+     <main class="flex-1 overflow-y-auto bg-[#f6f3eb] p-3 sm:p-6 md:p-10 w-full min-w-0">
+ 
+         <?php if ($flashError !== ''): ?>
+-            <div class="mb-6 px-4 py-3 bg-red-50 border border-red-200 rounded text-sm text-red-800">
++            <div role="alert" class="mb-6 px-4 py-3 bg-red-50 border border-red-200 rounded text-sm text-red-800">
+                 <?= e($flashError); ?>
+             </div>
+         <?php endif; ?>
+ 
++        <?php if (($flashSuccess ?? '') !== ''): ?>
++            <div role="status" class="mb-6 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded text-sm text-emerald-800">
++                <?= e($flashSuccess); ?>
++            </div>
++        <?php endif; ?>
++
+         <!-- Top Bar Date Display -->
+         <div class="flex items-center justify-between gap-3 mb-6">
+             <button type="button" id="admin-menu-toggle" class="md:hidden inline-flex items-center justify-center gap-2 px-3 py-2 bg-[#4c1719] text-white rounded text-xs font-bold uppercase tracking-wider" aria-controls="admin-sidebar" aria-expanded="false">
+                 <i class="fa-solid fa-bars"></i> Menu
+             </button>
+             <div class="bg-white px-4 py-2 rounded border border-gray-200 text-xs text-gray-700 shadow-sm font-medium ml-auto">
+                 <?= e(date('D, F j, Y')); ?>
+             </div>
+         </div>
+ 
+         <!-- TAB 1: OVERVIEW -->
+         <?php if ($tab === 'overview'): ?>
+-            <div class="mb-8">
+-                <p class="text-[10px] tracking-widest font-semibold text-gray-400 uppercase">OVERVIEW</p>
+-                <h2 class="admin-page-title font-serif font-bold text-gray-900 mt-0.5">Dashboard Overview</h2>
+-            </div>
+-
+-            <!-- Top Metric Cards Grid -->
+-            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 sm:gap-4 mb-6 sm:mb-8">
+-                <div class="bg-white p-4 sm:p-5 rounded border-l-4 border-[#4c1719] shadow-sm">
+-                    <p class="text-[10px] tracking-wider font-bold text-gray-500 uppercase">TOTAL REVENUE</p>
+-                    <h3 class="text-2xl font-serif font-bold text-[#4c1719] mt-2"><?= e(Catalog::formatPrice((int) $stats['revenue_php'])); ?></h3>
+-                    <p class="text-[11px] text-gray-400 mt-1">Excl. cancelled</p>
+-                </div>
+-                <div class="bg-white p-4 sm:p-5 rounded border-l-4 border-emerald-600 shadow-sm">
+-                    <p class="text-[10px] tracking-wider font-bold text-gray-500 uppercase">TOTAL ORDERS</p>
+-                    <h3 class="text-2xl font-serif font-bold text-gray-900 mt-2"><?= (int) $stats['order_count']; ?></h3>
+-                    <p class="text-[11px] text-gray-400 mt-1"><?= (int) $stats['pending_count']; ?> pending</p>
+-                </div>
+-                <div class="bg-white p-4 sm:p-5 rounded border-l-4 border-amber-600 shadow-sm">
+-                    <p class="text-[10px] tracking-wider font-bold text-gray-500 uppercase">LOW STOCK</p>
+-                    <h3 class="text-2xl font-serif font-bold text-amber-700 mt-2"><?= (int) $lowStockCount; ?></h3>
+-                    <p class="text-[11px] text-gray-400 mt-1">Need restocking</p>
+-                </div>
+-                <div class="bg-white p-4 sm:p-5 rounded border-l-4 border-blue-600 shadow-sm">
+-                    <p class="text-[10px] tracking-wider font-bold text-gray-500 uppercase">ACTIVE PRODUCTS</p>
+-                    <h3 class="text-2xl font-serif font-bold text-blue-900 mt-2"><?= (int) $activeCount; ?></h3>
+-                    <p class="text-[11px] text-gray-400 mt-1">of <?= count($inventory); ?> total</p>
+-                </div>
+-                <div class="bg-white p-4 sm:p-5 rounded border-l-4 border-[#8c7853] shadow-sm">
+-                    <p class="text-[10px] tracking-wider font-bold text-gray-500 uppercase">TOTAL BUYERS</p>
+-                    <h3 class="text-2xl font-serif font-bold text-gray-900 mt-2"><?= (int) $stats['buyer_count']; ?></h3>
+-                    <p class="text-[11px] text-gray-400 mt-1">Unique customers</p>
+-                </div>
+-            </div>
+-
+-            <!-- Bottom Split Panels: Recent Orders & Stock Alerts -->
+-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-8">
+-                <!-- Recent Orders Panel -->
+-                <div class="lg:col-span-2 bg-white rounded border border-gray-200 shadow-sm p-4 sm:p-6">
+-                    <div class="flex justify-between items-center mb-6">
+-                        <h3 class="font-serif font-bold text-base text-gray-900">Recent Orders</h3>
+-                        <a href="admin.php?tab=orders" class="text-xs text-[#4c1719] font-semibold hover:underline">View all ΓåÆ</a>
+-                    </div>
+-                    <div class="divide-y divide-gray-100">
+-                        <?php if ($recentOrders === []): ?>
+-                            <p class="py-4 text-sm text-gray-500">No orders yet.</p>
+-                        <?php else: ?>
+-                            <?php foreach ($recentOrders as $ord): ?>
+-                                <div class="py-4 flex justify-between items-center gap-3">
+-                                    <div class="min-w-0">
+-                                        <h4 class="font-bold text-sm text-gray-900"><?= e($ord['customer_name']); ?></h4>
+-                                        <p class="text-xs text-gray-400"><?= e($ord['public_code']); ?></p>
+-                                    </div>
+-                                    <div class="text-right">
+-                                        <p class="font-serif font-bold text-sm text-[#4c1719]"><?= e(Catalog::formatPrice((int) $ord['total_php'])); ?></p>
+-                                        <span class="text-[11px] font-semibold <?= e(Orders::statusTextClasses((string) $ord['status'])); ?>"><?= e(Orders::statusLabel((string) $ord['status'])); ?></span>
+-                                    </div>
+-                                </div>
+-                            <?php endforeach; ?>
+-                        <?php endif; ?>
+-                    </div>
+-                </div>
+-
+-                <!-- Stock Alerts Panel -->
+-                <div class="bg-white rounded border border-gray-200 shadow-sm p-4 sm:p-6">
+-                    <div class="flex justify-between items-center mb-6">
+-                        <h3 class="font-serif font-bold text-base text-gray-900">Stock Alerts</h3>
+-                        <a href="admin.php?tab=inventory" class="text-xs text-[#4c1719] font-semibold hover:underline">Manage ΓåÆ</a>
+-                    </div>
+-                    <div class="space-y-4">
+-                        <?php if ($lowStock === []): ?>
+-                            <p class="text-sm text-gray-500">All products are sufficiently stocked.</p>
+-                        <?php else: ?>
+-                            <?php foreach ($lowStock as $p): ?>
+-                                <div class="flex items-center justify-between gap-3 pb-3 border-b border-gray-100">
+-                                    <img src="<?= e(kd_image_url($p['image_path'])); ?>" alt="<?= e($p['name']); ?>" class="w-10 h-10 object-cover rounded border">
+-                                    <div class="flex-1 min-w-0">
+-                                        <h4 class="font-serif font-bold text-xs text-gray-900 truncate"><?= e($p['name']); ?></h4>
+-                                        <p class="text-[10px] text-gray-400 uppercase"><?= e(Catalog::categoryLabel($p['category'])); ?></p>
+-                                    </div>
+-                                    <span class="text-xs font-bold text-amber-700"><?= (int) $p['stock']; ?> left</span>
+-                                </div>
+-                            <?php endforeach; ?>
+-                        <?php endif; ?>
+-                    </div>
+-                </div>
+-            </div>
++            <?php View::render('admin/overview', get_defined_vars()); ?>
+ 
+         <!-- TAB 2: ORDERS -->
+-        <?php elseif ($tab === 'orders'): ?>
++        <?php elseif ($tab === 'orders'):
++            $hasActiveOrderFilters = ($orderFilters['status'] ?? 'all') !== 'all'
++                || ($orderFilters['payment'] ?? 'all') !== 'all';
++            $ordersEmptyMessage = $hasActiveOrderFilters
++                ? 'No orders match these filters.'
++                : 'No orders yet.';
++        ?>
+             <div class="mb-6">
+                 <p class="text-[10px] tracking-widest font-semibold text-gray-400 uppercase">ORDERS</p>
+                 <h2 class="admin-page-title font-serif font-bold text-gray-900 mt-0.5">Order Management</h2>
+             </div>
+ 
++            <form method="get" action="admin.php" class="mb-4 flex flex-wrap items-end gap-3 bg-white border border-gray-200 rounded shadow-sm p-4">
++                <input type="hidden" name="tab" value="orders">
++                <div>
++                    <label for="filter-status" class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Status</label>
++                    <select id="filter-status" name="status" class="px-3 py-2 bg-white border border-gray-300 rounded text-xs min-w-[140px]">
++                        <option value="all" <?= ($orderFilters['status'] ?? 'all') === 'all' ? 'selected' : ''; ?>>All statuses</option>
++                        <?php foreach (Orders::STATUSES as $statusOption): ?>
++                            <option value="<?= e($statusOption); ?>" <?= ($orderFilters['status'] ?? 'all') === $statusOption ? 'selected' : ''; ?>><?= e(Orders::statusLabel($statusOption)); ?></option>
++                        <?php endforeach; ?>
++                    </select>
++                </div>
++                <div>
++                    <label for="filter-payment" class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Payment</label>
++                    <select id="filter-payment" name="payment" class="px-3 py-2 bg-white border border-gray-300 rounded text-xs min-w-[140px]">
++                        <option value="all" <?= ($orderFilters['payment'] ?? 'all') === 'all' ? 'selected' : ''; ?>>All payments</option>
++                        <option value="awaiting" <?= ($orderFilters['payment'] ?? 'all') === 'awaiting' ? 'selected' : ''; ?>>Awaiting payment</option>
++                        <option value="recorded" <?= ($orderFilters['payment'] ?? 'all') === 'recorded' ? 'selected' : ''; ?>>Payment recorded</option>
++                    </select>
++                </div>
++                <button type="submit" class="px-4 py-2 bg-[#4c1719] text-white rounded text-[10px] font-bold uppercase hover:bg-[#361012]">Apply filters</button>
++                <?php if ($hasActiveOrderFilters): ?>
++                    <a href="admin.php?tab=orders" class="px-4 py-2 border border-gray-300 rounded text-[10px] font-bold uppercase text-gray-700 hover:bg-gray-50">Clear filters</a>
++                <?php endif; ?>
++            </form>
++
+             <div class="bg-white rounded border border-gray-200 shadow-sm overflow-hidden">
+                 <div class="md:hidden divide-y divide-gray-100">
+                     <?php if ($adminOrders === []): ?>
+-                        <p class="p-4 text-center text-sm text-gray-500">No orders yet.</p>
++                        <p class="p-4 text-center text-sm text-gray-500"><?= e($ordersEmptyMessage); ?></p>
+                     <?php else: ?>
+                         <?php foreach ($adminOrders as $ord):
+                             $orderStatus = Orders::normalizeStatus((string) $ord['status']);
+                             $createdTs = strtotime((string) $ord['created_at']);
+-                            $orderDate = $createdTs !== false ? date('Y-m-d', $createdTs) : '';
++                            $orderDate = $createdTs !== false ? date('M j, Y', $createdTs) : '';
+                             $paymentReceived = trim((string) ($ord['payment_received_at'] ?? '')) !== '';
+                             $receiptRef = trim((string) ($ord['receipt_ref'] ?? ''));
++                            $statusSelectId = 'status-select-' . (int) $ord['id'];
+                         ?>
+                             <article class="p-4 space-y-3">
+                                 <div class="flex justify-between items-start gap-3">
+                                     <div class="min-w-0">
+                                         <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Order ID</p>
+                                         <p class="font-bold text-sm text-gray-900"><?= e($ord['public_code']); ?></p>
+                                     </div>
+                                     <span class="flex-shrink-0 px-2 py-0.5 <?= e(Orders::statusBadgeClasses($orderStatus)); ?> font-bold text-[10px] uppercase rounded">
+                                         <?= e(Orders::statusLabel($orderStatus)); ?>
+                                     </span>
+                                 </div>
+                                 <div>
+                                     <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Customer</p>
+                                     <p class="font-bold text-sm text-gray-900"><?= e($ord['customer_name']); ?></p>
+                                     <p class="text-xs text-gray-500 break-all"><?= e($ord['user_email']); ?></p>
++                                    <p class="text-xs text-gray-600 mt-1"><?= e(Orders::fulfillmentLabel((string) $ord['fulfillment'])); ?> ┬╖ <?= e($ord['payment_method']); ?></p>
+                                 </div>
+                                 <div>
+                                     <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Items</p>
+                                     <div class="text-xs text-gray-700"><?= kd_items_html(Orders::itemsLabel($ord)); ?></div>
+                                 </div>
+                                 <div class="flex justify-between items-center gap-3">
+                                     <div>
+                                         <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Total</p>
+@@ -172,72 +126,89 @@ declare(strict_types=1);
+                                     <?php if ($paymentReceived): ?>
+                                         <span class="text-emerald-700 font-semibold text-xs">Payment recorded</span>
+                                     <?php else: ?>
+                                         <div class="space-y-3">
+                                             <span class="text-amber-700 font-semibold text-xs">Awaiting payment</span>
+                                             <?php if ($receiptRef !== ''): ?>
+                                                 <p class="text-[10px] text-gray-500">Ref <?= e($receiptRef); ?></p>
+                                             <?php endif; ?>
+-                                            <form action="" method="POST">
+-                                                <?= csrf_field() ?>
+-                                                <input type="hidden" name="order_id" value="<?= (int) $ord['id']; ?>">
+-                                                <button type="submit" name="confirm_payment" value="1" class="w-full px-3 py-2 bg-emerald-700 text-white rounded text-[10px] font-bold uppercase">Record payment</button>
+-                                            </form>
++                                            <button
++                                                type="button"
++                                                data-payment-open
++                                                data-order-id="<?= (int) $ord['id']; ?>"
++                                                data-code="<?= e($ord['public_code']); ?>"
++                                                data-customer="<?= e($ord['customer_name']); ?>"
++                                                data-total="<?= e(Catalog::formatPrice((int) $ord['total_php'])); ?>"
++                                                data-method="<?= e($ord['payment_method']); ?>"
++                                                data-ref="<?= e($receiptRef); ?>"
++                                                aria-label="Record payment for <?= e($ord['public_code']); ?>"
++                                                class="w-full px-3 py-2 bg-emerald-700 text-white rounded text-[10px] font-bold uppercase hover:bg-emerald-800"
++                                            >Record payment</button>
+                                         </div>
+                                     <?php endif; ?>
+                                 </div>
+                                 <div class="pt-2 border-t border-gray-100">
+                                     <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Update Status</p>
+-                                    <form action="" method="POST" class="flex flex-col gap-2">
++                                    <form action="<?= e($ordersTabUrl ?? Orders::adminOrdersUrl($orderFilters ?? [])); ?>" method="POST" class="flex flex-col gap-2">
+                                         <?= csrf_field() ?>
+                                         <input type="hidden" name="order_id" value="<?= (int) $ord['id']; ?>">
+-                                        <select name="new_status" class="w-full px-2 py-2 bg-white border border-gray-300 rounded text-xs">
++                                        <input type="hidden" name="filter_status" value="<?= e($orderFilters['status'] ?? 'all'); ?>">
++                                        <input type="hidden" name="filter_payment" value="<?= e($orderFilters['payment'] ?? 'all'); ?>">
++                                        <label class="sr-only" for="<?= e($statusSelectId); ?>">Status for <?= e($ord['public_code']); ?></label>
++                                        <select id="<?= e($statusSelectId); ?>" name="new_status" class="w-full px-2 py-2 bg-white border border-gray-300 rounded text-xs">
+                                             <?php foreach (Orders::STATUSES as $statusOption): ?>
+                                                 <option value="<?= e($statusOption); ?>" <?= $orderStatus === $statusOption ? 'selected' : ''; ?>><?= e(Orders::statusLabel($statusOption)); ?></option>
+                                             <?php endforeach; ?>
+                                         </select>
+-                                        <button type="submit" name="update_order_status" class="w-full px-3 py-2 bg-[#4c1719] text-white rounded text-[10px] font-bold uppercase">Save</button>
++                                        <button type="submit" name="update_order_status" aria-label="Save status for <?= e($ord['public_code']); ?>" class="w-full px-3 py-2 bg-[#4c1719] text-white rounded text-[10px] font-bold uppercase">Save</button>
+                                     </form>
+                                 </div>
+                             </article>
+                         <?php endforeach; ?>
+                     <?php endif; ?>
+                 </div>
+ 
+                 <div class="admin-desktop-table overflow-x-auto">
+-                <table class="w-full min-w-[980px] text-left border-collapse text-xs">
++                <table class="w-full min-w-[1080px] text-left border-collapse text-xs">
++                    <caption class="sr-only">Admin orders list</caption>
+                     <thead>
+                         <tr class="bg-[#fbf9f5] border-b border-gray-200 text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+-                            <th class="p-4">Order ID</th>
+-                            <th class="p-4">Customer</th>
+-                            <th class="p-4">Email</th>
+-                            <th class="p-4">Items</th>
+-                            <th class="p-4">Total</th>
+-                            <th class="p-4">Status</th>
+-                            <th class="p-4">Payment</th>
+-                            <th class="p-4">Update Status</th>
+-                            <th class="p-4">Date</th>
++                            <th scope="col" class="p-4">Order ID</th>
++                            <th scope="col" class="p-4">Customer</th>
++                            <th scope="col" class="p-4">Email</th>
++                            <th scope="col" class="p-4">Fulfillment</th>
++                            <th scope="col" class="p-4">Items</th>
++                            <th scope="col" class="p-4">Total</th>
++                            <th scope="col" class="p-4">Status</th>
++                            <th scope="col" class="p-4">Payment</th>
++                            <th scope="col" class="p-4">Update Status</th>
++                            <th scope="col" class="p-4">Date</th>
+                         </tr>
+                     </thead>
+                     <tbody class="divide-y divide-gray-100 text-gray-700">
+                         <?php if ($adminOrders === []): ?>
+                             <tr>
+-                                <td colspan="9" class="p-4 text-center text-gray-500">No orders yet.</td>
++                                <td colspan="10" class="p-4 text-center text-gray-500"><?= e($ordersEmptyMessage); ?></td>
+                             </tr>
+                         <?php else: ?>
+                             <?php foreach ($adminOrders as $ord):
+                                 $orderStatus = Orders::normalizeStatus((string) $ord['status']);
+                                 $createdTs = strtotime((string) $ord['created_at']);
+-                                $orderDate = $createdTs !== false ? date('Y-m-d', $createdTs) : '';
++                                $orderDate = $createdTs !== false ? date('M j, Y', $createdTs) : '';
++                                $statusSelectId = 'status-select-dt-' . (int) $ord['id'];
+                             ?>
+                                 <tr class="hover:bg-gray-50 transition">
+                                     <td class="p-4 font-bold text-gray-900"><?= e($ord['public_code']); ?></td>
+                                     <td class="p-4 font-bold text-gray-900"><?= e($ord['customer_name']); ?></td>
+                                     <td class="p-4 text-gray-500"><?= e($ord['user_email']); ?></td>
++                                    <td class="p-4 text-gray-600">
++                                        <span class="block"><?= e(Orders::fulfillmentLabel((string) $ord['fulfillment'])); ?></span>
++                                        <span class="block text-[10px] text-gray-500 mt-0.5"><?= e($ord['payment_method']); ?></span>
++                                    </td>
+                                     <td class="p-4"><?= kd_items_html(Orders::itemsLabel($ord)); ?></td>
+                                     <td class="p-4 font-serif font-bold text-[#4c1719]"><?= e(Catalog::formatPrice((int) $ord['total_php'])); ?></td>
+                                     <td class="p-4">
+                                         <span class="px-2 py-0.5 <?= e(Orders::statusBadgeClasses($orderStatus)); ?> font-bold text-[10px] uppercase rounded">
+                                             <?= e(Orders::statusLabel($orderStatus)); ?>
+                                         </span>
+                                     </td>
+                                     <td class="p-4">
+@@ -248,129 +219,269 @@ declare(strict_types=1);
+                                         <?php if ($paymentReceived): ?>
+                                             <span class="text-emerald-700 font-semibold">Payment recorded</span>
+                                         <?php else: ?>
+                                             <div class="space-y-2">
+                                                 <span class="text-amber-700 font-semibold">Awaiting payment</span>
+                                                 <?php if ($receiptRef !== ''): ?>
+                                                     <p class="text-[10px] text-gray-500">Ref <?= e($receiptRef); ?></p>
+                                                 <?php endif; ?>
+-                                                <form action="" method="POST">
+-                                                    <?= csrf_field() ?>
+-                                                    <input type="hidden" name="order_id" value="<?= (int) $ord['id']; ?>">
+-                                                    <button type="submit" name="confirm_payment" value="1" class="px-2 py-1 bg-emerald-700 text-white rounded text-[10px] font-bold uppercase">Record payment</button>
+-                                                </form>
++                                                <button
++                                                    type="button"
++                                                    data-payment-open
++                                                    data-order-id="<?= (int) $ord['id']; ?>"
++                                                    data-code="<?= e($ord['public_code']); ?>"
++                                                    data-customer="<?= e($ord['customer_name']); ?>"
++                                                    data-total="<?= e(Catalog::formatPrice((int) $ord['total_php'])); ?>"
++                                                    data-method="<?= e($ord['payment_method']); ?>"
++                                                    data-ref="<?= e($receiptRef); ?>"
++                                                    aria-label="Record payment for <?= e($ord['public_code']); ?>"
++                                                    class="px-2 py-1 bg-emerald-700 text-white rounded text-[10px] font-bold uppercase hover:bg-emerald-800"
++                                                >Record payment</button>
+                                             </div>
+                                         <?php endif; ?>
+                                     </td>
+                                     <td class="p-4">
+-                                        <form action="" method="POST" class="flex flex-wrap gap-2">
++                                        <form action="<?= e($ordersTabUrl ?? Orders::adminOrdersUrl($orderFilters ?? [])); ?>" method="POST" class="flex flex-wrap gap-2">
+                                             <?= csrf_field() ?>
+                                             <input type="hidden" name="order_id" value="<?= (int) $ord['id']; ?>">
+-                                            <select name="new_status" class="px-2 py-1 bg-white border border-gray-300 rounded text-xs">
++                                            <input type="hidden" name="filter_status" value="<?= e($orderFilters['status'] ?? 'all'); ?>">
++                                            <input type="hidden" name="filter_payment" value="<?= e($orderFilters['payment'] ?? 'all'); ?>">
++                                            <label class="sr-only" for="<?= e($statusSelectId); ?>">Status for <?= e($ord['public_code']); ?></label>
++                                            <select id="<?= e($statusSelectId); ?>" name="new_status" class="px-2 py-1 bg-white border border-gray-300 rounded text-xs">
+                                                 <?php foreach (Orders::STATUSES as $statusOption): ?>
+                                                     <option value="<?= e($statusOption); ?>" <?= $orderStatus === $statusOption ? 'selected' : ''; ?>><?= e(Orders::statusLabel($statusOption)); ?></option>
+                                                 <?php endforeach; ?>
+                                             </select>
+-                                            <button type="submit" name="update_order_status" class="px-2 py-1 bg-[#4c1719] text-white rounded text-[10px] font-bold uppercase">Save</button>
++                                            <button type="submit" name="update_order_status" aria-label="Save status for <?= e($ord['public_code']); ?>" class="px-2 py-1 bg-[#4c1719] text-white rounded text-[10px] font-bold uppercase">Save</button>
+                                         </form>
+                                     </td>
+                                     <td class="p-4 text-gray-500"><?= e($orderDate); ?></td>
+                                 </tr>
+                             <?php endforeach; ?>
+                         <?php endif; ?>
+                     </tbody>
+                 </table>
+                 </div>
+             </div>
+ 
+         <!-- TAB 3: INVENTORY -->
+         <?php elseif ($tab === 'inventory'): ?>
+-            <div class="mb-6">
+-                <p class="text-[10px] tracking-widest font-semibold text-gray-400 uppercase">INVENTORY</p>
+-                <h2 class="admin-page-title font-serif font-bold text-gray-900 mt-0.5">Inventory System</h2>
++            <?php
++            $inventoryCategories = ['fresh', 'dried', 'bloombox', 'glassdome', 'others'];
++            $inventoryBadges = ['', 'Bestseller', 'Limited', 'Luxury', 'New'];
++            $formProduct = $editProduct ?? null;
++            ?>
++            <div class="mb-6 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
++                <div>
++                    <p class="text-[10px] tracking-widest font-semibold text-gray-400 uppercase">INVENTORY</p>
++                    <h2 class="admin-page-title font-serif font-bold text-gray-900 mt-0.5">Inventory System</h2>
++                </div>
++                <?php if ($inventoryFormMode !== 'new'): ?>
++                    <a href="admin.php?tab=inventory&amp;new=1" class="inline-flex items-center justify-center px-4 py-2 bg-[#4c1719] text-white rounded text-[10px] font-bold uppercase tracking-wider hover:opacity-90">Add product</a>
++                <?php endif; ?>
+             </div>
+ 
++            <?php if ($inventoryFormMode === 'new' || $inventoryFormMode === 'edit'): ?>
++                <section class="bg-white rounded border border-gray-200 shadow-sm p-4 sm:p-6 mb-6" aria-labelledby="inventory-form-title">
++                    <div class="flex items-center justify-between gap-3 mb-4">
++                        <h3 id="inventory-form-title" class="font-serif font-bold text-gray-900"><?= $inventoryFormMode === 'edit' ? 'Edit product' : 'Add product'; ?></h3>
++                        <a href="admin.php?tab=inventory" class="text-xs text-gray-500 hover:text-[#4c1719] font-semibold">Cancel</a>
++                    </div>
++                    <form action="admin.php?tab=inventory" method="POST" enctype="multipart/form-data" class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
++                        <?= csrf_field() ?>
++                        <input type="hidden" name="product_id" value="<?= $inventoryFormMode === 'edit' ? (int) $formProduct['id'] : 0; ?>">
++                        <div>
++                            <label for="product-name" class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Name</label>
++                            <input type="text" id="product-name" name="name" required maxlength="160" value="<?= e((string) ($formProduct['name'] ?? '')); ?>" class="w-full px-3 py-2 bg-white border border-gray-300 rounded">
++                        </div>
++                        <div>
++                            <label for="product-category" class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Category</label>
++                            <select id="product-category" name="category" required class="w-full px-3 py-2 bg-white border border-gray-300 rounded">
++                                <?php foreach ($inventoryCategories as $cat): ?>
++                                    <option value="<?= e($cat); ?>"<?= ($formProduct['category'] ?? 'fresh') === $cat ? ' selected' : ''; ?>><?= e(Catalog::categoryLabel($cat)); ?></option>
++                                <?php endforeach; ?>
++                            </select>
++                        </div>
++                        <div class="md:col-span-2">
++                            <label for="product-description" class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Description</label>
++                            <textarea id="product-description" name="description" rows="3" maxlength="2000" class="w-full px-3 py-2 bg-white border border-gray-300 rounded"><?= e((string) ($formProduct['description'] ?? '')); ?></textarea>
++                        </div>
++                        <div>
++                            <label for="product-price" class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Price (Γé▒)</label>
++                            <input type="number" id="product-price" name="price_php" required min="1" max="999999" value="<?= (int) ($formProduct['price_php'] ?? 0); ?>" class="w-full px-3 py-2 bg-white border border-gray-300 rounded">
++                        </div>
++                        <div>
++                            <label for="product-stock" class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Stock</label>
++                            <input type="number" id="product-stock" name="stock" required min="0" max="99999" value="<?= (int) ($formProduct['stock'] ?? 0); ?>" class="w-full px-3 py-2 bg-white border border-gray-300 rounded">
++                        </div>
++                        <div>
++                            <label for="product-badge" class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Badge</label>
++                            <select id="product-badge" name="badge" class="w-full px-3 py-2 bg-white border border-gray-300 rounded">
++                                <?php
++                                $currentBadge = (string) ($formProduct['badge'] ?? '');
++                                foreach ($inventoryBadges as $badgeOpt):
++                                    $selected = ($badgeOpt === '' && $currentBadge === '') || ($badgeOpt !== '' && $currentBadge === $badgeOpt);
++                                ?>
++                                    <option value="<?= e($badgeOpt); ?>"<?= $selected ? ' selected' : ''; ?>><?= $badgeOpt === '' ? 'None' : e($badgeOpt); ?></option>
++                                <?php endforeach; ?>
++                            </select>
++                        </div>
++                        <div class="flex items-end">
++                            <label class="inline-flex items-center gap-2 cursor-pointer">
++                                <input type="checkbox" name="is_active" value="1" class="rounded border-gray-300"<?= (int) ($formProduct['is_active'] ?? 1) === 1 ? ' checked' : ''; ?>>
++                                <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Active in shop</span>
++                            </label>
++                        </div>
++                        <div class="md:col-span-2">
++                            <label for="product-image" class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">
++                                Product image<?= $inventoryFormMode === 'new' ? ' (required)' : ' (optional)'; ?>
++                            </label>
++                            <?php if ($inventoryFormMode === 'edit' && !empty($formProduct['image_path'])): ?>
++                                <div class="flex items-center gap-3 mb-2">
++                                    <img src="<?= e(kd_image_url($formProduct['image_path'])); ?>" alt="" class="w-14 h-14 object-cover rounded border">
++                                    <p class="text-gray-500">Current: <?= e($formProduct['image_path']); ?></p>
++                                </div>
++                            <?php endif; ?>
++                            <input type="file" id="product-image" name="product_image" accept="image/jpeg,image/png,image/webp" class="w-full text-xs">
++                            <?php if ($inventoryFormMode === 'new'): ?>
++                                <p class="text-[10px] text-gray-400 mt-1">Or use an existing catalog path:</p>
++                                <input type="text" name="image_path" placeholder="images/example.jpg" class="mt-1 w-full px-3 py-2 bg-white border border-gray-300 rounded">
++                            <?php endif; ?>
++                        </div>
++                        <div class="md:col-span-2 flex justify-end gap-2 pt-2">
++                            <a href="admin.php?tab=inventory" class="px-4 py-2 border border-gray-300 rounded text-[10px] font-bold uppercase text-gray-700 hover:bg-gray-50">Cancel</a>
++                            <button type="submit" name="save_product" value="1" class="px-4 py-2 bg-[#4c1719] text-white rounded text-[10px] font-bold uppercase hover:opacity-90"><?= $inventoryFormMode === 'edit' ? 'Save changes' : 'Create product'; ?></button>
++                        </div>
++                    </form>
++                </section>
++            <?php endif; ?>
++
+             <div class="bg-white rounded border border-gray-200 shadow-sm overflow-hidden">
+                 <div class="md:hidden divide-y divide-gray-100">
+                     <?php foreach ($inventory as $p):
+                         $stockUi = Catalog::stockDisplay((int) $p['stock']);
++                        $isActive = (int) $p['is_active'] === 1;
++                        $hasOrders = Catalog::hasOrderItems((int) $p['id']);
+                     ?>
+                         <article class="p-4 space-y-3">
+                             <div class="flex items-center gap-3 min-w-0">
+                                 <img src="<?= e(kd_image_url($p['image_path'])); ?>" alt="<?= e($p['name']); ?>" class="w-12 h-12 flex-shrink-0 object-cover rounded border">
+-                                <div class="min-w-0">
++                                <div class="min-w-0 flex-1">
+                                     <p class="font-serif font-bold text-sm text-gray-900"><?= e($p['name']); ?></p>
+                                     <p class="text-[10px] text-gray-400 uppercase font-semibold"><?= e(Catalog::categoryLabel($p['category'])); ?></p>
++                                    <span class="inline-block mt-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase <?= $isActive ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-200 text-gray-600'; ?>"><?= $isActive ? 'Active' : 'Hidden'; ?></span>
+                                 </div>
+                             </div>
+                             <div class="grid grid-cols-2 gap-3">
+                                 <div>
+                                     <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Price</p>
+                                     <p class="font-serif font-bold text-[#4c1719] text-sm"><?= e(Catalog::formatPrice((int) $p['price_php'])); ?></p>
+                                 </div>
+                                 <div>
+                                     <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Current Stock</p>
+                                     <p class="font-bold text-sm <?= (int) $p['stock'] <= 3 ? 'text-amber-700' : 'text-gray-900'; ?>"><?= (int) $p['stock']; ?></p>
+                                 </div>
+                             </div>
+                             <div>
+                                 <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Status</p>
+                                 <span class="<?= e($stockUi['class'] === 'out-of-stock' ? 'text-gray-500' : ($stockUi['class'] === 'low-stock' ? 'text-amber-700' : 'text-emerald-700')); ?> font-semibold text-xs"><?= e($stockUi['text']); ?></span>
+                             </div>
++                            <div class="flex flex-wrap gap-2">
++                                <a href="admin.php?tab=inventory&amp;edit=<?= (int) $p['id']; ?>" class="px-3 py-1 border border-gray-300 rounded text-[10px] font-bold uppercase text-gray-700">Edit</a>
++                                <?php if ($isActive): ?>
++                                    <button type="button" class="px-3 py-1 border border-gray-300 rounded text-[10px] font-bold uppercase text-gray-700" data-product-open data-action="hide" data-product-id="<?= (int) $p['id']; ?>" data-product-name="<?= e($p['name']); ?>">Hide</button>
++                                <?php else: ?>
++                                    <button type="button" class="px-3 py-1 border border-emerald-700 text-emerald-800 rounded text-[10px] font-bold uppercase" data-product-open data-action="show" data-product-id="<?= (int) $p['id']; ?>" data-product-name="<?= e($p['name']); ?>">Show</button>
++                                <?php endif; ?>
++                                <?php if (!$hasOrders): ?>
++                                    <button type="button" class="px-3 py-1 border border-red-300 text-red-800 rounded text-[10px] font-bold uppercase" data-product-open data-action="delete" data-product-id="<?= (int) $p['id']; ?>" data-product-name="<?= e($p['name']); ?>">Delete</button>
++                                <?php else: ?>
++                                    <span class="px-3 py-1 text-[10px] text-gray-400" title="Hide instead">Delete unavailable</span>
++                                <?php endif; ?>
++                            </div>
+                             <div class="pt-2 border-t border-gray-100">
+                                 <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Restock Qty</p>
+                                 <form action="" method="POST" enctype="multipart/form-data" class="flex flex-col gap-2">
+                                     <?= csrf_field() ?>
+                                     <input type="hidden" name="product_id" value="<?= (int) $p['id']; ?>">
+-                                    <input type="number" name="restock_qty" min="0" max="99999" value="<?= (int) $p['stock']; ?>" class="w-full px-2 py-2 bg-white border border-gray-300 rounded text-xs">
+-                                    <input type="file" name="product_image" accept="image/jpeg,image/png,image/webp" class="w-full text-xs">
++                                    <label class="sr-only" for="restock-qty-m-<?= (int) $p['id']; ?>">Restock quantity</label>
++                                    <input type="number" id="restock-qty-m-<?= (int) $p['id']; ?>" name="restock_qty" min="0" max="99999" value="<?= (int) $p['stock']; ?>" class="w-full px-2 py-2 bg-white border border-gray-300 rounded text-xs">
++                                    <label class="sr-only" for="restock-img-m-<?= (int) $p['id']; ?>">Replace image</label>
++                                    <input type="file" id="restock-img-m-<?= (int) $p['id']; ?>" name="product_image" accept="image/jpeg,image/png,image/webp" class="w-full text-xs">
+                                     <button type="submit" name="restock_item" class="w-full px-3 py-2 bg-[#4c1719] text-white rounded text-[10px] font-bold uppercase">Save</button>
+                                 </form>
+                             </div>
+                         </article>
+                     <?php endforeach; ?>
+                 </div>
+ 
+                 <div class="admin-desktop-table overflow-x-auto">
+-                <table class="w-full min-w-[720px] text-left border-collapse text-xs">
++                <table class="w-full min-w-[900px] text-left border-collapse text-xs">
++                    <caption class="sr-only">Product inventory</caption>
+                     <thead>
+                         <tr class="bg-[#fbf9f5] border-b border-gray-200 text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+-                            <th class="p-4">Product</th>
+-                            <th class="p-4">Category</th>
+-                            <th class="p-4">Price</th>
+-                            <th class="p-4">Current Stock</th>
+-                            <th class="p-4">Status</th>
+-                            <th class="p-4">Restock Qty</th>
++                            <th scope="col" class="p-4">Product</th>
++                            <th scope="col" class="p-4">Category</th>
++                            <th scope="col" class="p-4">Price</th>
++                            <th scope="col" class="p-4">Current Stock</th>
++                            <th scope="col" class="p-4">Stock status</th>
++                            <th scope="col" class="p-4">Visibility</th>
++                            <th scope="col" class="p-4">Restock Qty</th>
++                            <th scope="col" class="p-4">Actions</th>
+                         </tr>
+                     </thead>
+                     <tbody class="divide-y divide-gray-100 text-gray-700">
+                         <?php foreach ($inventory as $p):
+                             $stockUi = Catalog::stockDisplay((int) $p['stock']);
++                            $isActive = (int) $p['is_active'] === 1;
++                            $hasOrders = Catalog::hasOrderItems((int) $p['id']);
+                         ?>
+                             <tr class="hover:bg-gray-50 transition">
+-                                <td class="p-4 flex items-center gap-3">
+-                                    <img src="<?= e(kd_image_url($p['image_path'])); ?>" alt="<?= e($p['name']); ?>" class="w-10 h-10 object-cover rounded border">
+-                                    <span class="font-serif font-bold text-gray-900"><?= e($p['name']); ?></span>
++                                <td class="p-4">
++                                    <div class="flex items-center gap-3">
++                                        <img src="<?= e(kd_image_url($p['image_path'])); ?>" alt="<?= e($p['name']); ?>" class="w-10 h-10 object-cover rounded border">
++                                        <span class="font-serif font-bold text-gray-900"><?= e($p['name']); ?></span>
++                                    </div>
+                                 </td>
+                                 <td class="p-4 text-gray-500 font-semibold"><?= e(Catalog::categoryLabel($p['category'])); ?></td>
+                                 <td class="p-4 font-serif font-bold text-[#4c1719]"><?= e(Catalog::formatPrice((int) $p['price_php'])); ?></td>
+                                 <td class="p-4 font-bold <?= (int) $p['stock'] <= 3 ? 'text-amber-700' : 'text-gray-900'; ?>"><?= (int) $p['stock']; ?></td>
+                                 <td class="p-4">
+                                     <span class="<?= e($stockUi['class'] === 'out-of-stock' ? 'text-gray-500' : ($stockUi['class'] === 'low-stock' ? 'text-amber-700' : 'text-emerald-700')); ?> font-semibold"><?= e($stockUi['text']); ?></span>
+                                 </td>
++                                <td class="p-4">
++                                    <span class="inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase <?= $isActive ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-200 text-gray-600'; ?>"><?= $isActive ? 'Active' : 'Hidden'; ?></span>
++                                </td>
+                                 <td class="p-4">
+                                     <form action="" method="POST" enctype="multipart/form-data" class="flex flex-wrap items-center gap-2">
+                                         <?= csrf_field() ?>
+                                         <input type="hidden" name="product_id" value="<?= (int) $p['id']; ?>">
+-                                        <input type="number" name="restock_qty" min="0" max="99999" value="<?= (int) $p['stock']; ?>" class="w-16 px-2 py-1 bg-white border border-gray-300 rounded text-xs">
+-                                        <input type="file" name="product_image" accept="image/jpeg,image/png,image/webp" class="max-w-[160px] text-[10px]">
++                                        <label class="sr-only" for="restock-qty-<?= (int) $p['id']; ?>">Restock quantity</label>
++                                        <input type="number" id="restock-qty-<?= (int) $p['id']; ?>" name="restock_qty" min="0" max="99999" value="<?= (int) $p['stock']; ?>" class="w-16 px-2 py-1 bg-white border border-gray-300 rounded text-xs">
++                                        <label class="sr-only" for="restock-img-<?= (int) $p['id']; ?>">Replace image</label>
++                                        <input type="file" id="restock-img-<?= (int) $p['id']; ?>" name="product_image" accept="image/jpeg,image/png,image/webp" class="max-w-[120px] text-[10px]">
+                                         <button type="submit" name="restock_item" class="px-3 py-1 bg-[#4c1719] text-white rounded text-[10px] font-bold uppercase">Save</button>
+                                     </form>
+                                 </td>
++                                <td class="p-4">
++                                    <div class="flex flex-wrap items-center gap-1">
++                                        <a href="admin.php?tab=inventory&amp;edit=<?= (int) $p['id']; ?>" class="px-2 py-1 border border-gray-300 rounded text-[10px] font-bold uppercase text-gray-700 hover:bg-gray-50">Edit</a>
++                                        <?php if ($isActive): ?>
++                                            <button type="button" class="px-2 py-1 border border-gray-300 rounded text-[10px] font-bold uppercase text-gray-700 hover:bg-gray-50" data-product-open data-action="hide" data-product-id="<?= (int) $p['id']; ?>" data-product-name="<?= e($p['name']); ?>">Hide</button>
++                                        <?php else: ?>
++                                            <button type="button" class="px-2 py-1 border border-emerald-700 text-emerald-800 rounded text-[10px] font-bold uppercase hover:bg-emerald-50" data-product-open data-action="show" data-product-id="<?= (int) $p['id']; ?>" data-product-name="<?= e($p['name']); ?>">Show</button>
++                                        <?php endif; ?>
++                                        <?php if (!$hasOrders): ?>
++                                            <button type="button" class="px-2 py-1 border border-red-300 text-red-800 rounded text-[10px] font-bold uppercase hover:bg-red-50" data-product-open data-action="delete" data-product-id="<?= (int) $p['id']; ?>" data-product-name="<?= e($p['name']); ?>">Delete</button>
++                                        <?php else: ?>
++                                            <span class="px-2 py-1 text-[10px] text-gray-400 cursor-help" title="Hide instead">Delete</span>
++                                        <?php endif; ?>
++                                    </div>
++                                </td>
+                             </tr>
+                         <?php endforeach; ?>
+                     </tbody>
+                 </table>
+                 </div>
+             </div>
+ 
+         <!-- TAB 4: BUYERS HISTORY -->
+@@ -466,11 +577,19 @@ declare(strict_types=1);
+                         <?php endif; ?>
+                     </tbody>
+                 </table>
+                 </div>
+             </div>
+         <?php endif; ?>
+ 
+     </main>
++    <?php View::render('partials/admin-payment-dialog', [
++        'ordersTabUrl' => $ordersTabUrl ?? Orders::adminOrdersUrl(Orders::normalizeAdminFilters([])),
++        'orderFilters' => $orderFilters ?? Orders::normalizeAdminFilters([]),
++    ]); ?>
++    <?php if ($tab === 'inventory'): ?>
++        <?php View::render('partials/admin-product-dialog'); ?>
++    <?php endif; ?>
+     <script src="<?= e(kd_asset('assets/js/nav.js')); ?>" defer></script>
++    <script src="<?= e(kd_asset('assets/js/admin.js')); ?>" defer></script>
+ </body>
+ </html>

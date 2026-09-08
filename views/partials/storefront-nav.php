@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 $is_logged_in = $is_logged_in ?? false;
+$is_admin = $is_admin ?? false;
 $user_name = $user_name ?? '';
 $navVariant = $navVariant ?? 'storefront';
 $navLinks = [
@@ -36,7 +37,11 @@ if ($navVariant === 'auth'):
             <div class="nav-actions">
                 <?php if ($is_logged_in): ?>
                     <span class="nav-greeting">Hi, <?= e($user_name); ?></span>
-                    <a href="orders.php" class="btn-order"><i class="fa-solid fa-clipboard-list"></i> ORDERS</a>
+                    <?php if ($is_admin): ?>
+                        <a href="admin.php" class="btn-order"><i class="fa-solid fa-table-columns"></i> ADMIN PANEL</a>
+                    <?php else: ?>
+                        <a href="orders.php" class="btn-order"><i class="fa-solid fa-clipboard-list"></i> ORDERS</a>
+                    <?php endif; ?>
                     <a href="logout.php" class="btn-login">LOG OUT</a>
                 <?php else: ?>
                     <a href="login.php" class="btn-login">LOG IN</a>
@@ -52,7 +57,11 @@ if ($navVariant === 'auth'):
             <?php endforeach; ?>
             <?php if ($is_logged_in): ?>
                 <span class="nav-greeting">Hi, <?= e($user_name); ?></span>
-                <a href="orders.php" class="btn-order"><i class="fa-solid fa-clipboard-list"></i> ORDERS</a>
+                <?php if ($is_admin): ?>
+                    <a href="admin.php" class="btn-order"><i class="fa-solid fa-table-columns"></i> ADMIN PANEL</a>
+                <?php else: ?>
+                    <a href="orders.php" class="btn-order"><i class="fa-solid fa-clipboard-list"></i> ORDERS</a>
+                <?php endif; ?>
                 <a href="logout.php" class="btn-login">LOG OUT</a>
             <?php else: ?>
                 <a href="login.php" class="btn-login">LOG IN</a>

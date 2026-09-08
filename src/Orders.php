@@ -12,6 +12,12 @@ final class Orders
 
     public const FULFILLMENTS = ['pickup', 'delivery'];
 
+    /** @var list<string> */
+    public const ADMIN_STATUS_FILTERS = ['all', 'pending', 'processing', 'delivered', 'cancelled'];
+
+    /** @var list<string> */
+    public const ADMIN_PAYMENT_FILTERS = ['all', 'awaiting', 'recorded'];
+
     private const AVAILABILITY_ERROR = 'This item is no longer available.';
 
     /** @param array<string,mixed> $input */
@@ -172,18 +178,69 @@ final class Orders
         return array_values($orders);
     }
 
-    /** @return list<array<string,mixed>> */
-    public static function allForAdmin(): array
+    /** @param array<string,mixed> $raw @return array{status: string, payment: string} */
+    public static function normalizeAdminFilters(array $raw): array
     {
-        $stmt = db()->query(
-            'SELECT o.id, o.public_code, o.user_id, u.email AS user_email,
+        $status = strtolower(trim((string) ($raw['status'] ?? 'all')));
+        if (!in_array($status, self::ADMIN_STATUS_FILTERS, true)) {
+            $status = 'all';
+        }
+
+        $payment = strtolower(trim((string) ($raw['payment'] ?? 'all')));
+        if (!in_array($payment, self::ADMIN_PAYMENT_FILTERS, true)) {
+            $payment = 'all';
+        }
+
+        return [
+            'status'  => $status,
+            'payment' => $payment,
+        ];
+    }
+
+    /** @param array{status?: string, payment?: string} $filters */
+    public static function adminOrdersUrl(array $filters = []): string
+    {
+        $filters = self::normalizeAdminFilters($filters);
+        $params = ['tab' => 'orders'];
+        if ($filters['status'] !== 'all') {
+            $params['status'] = $filters['status'];
+        }
+        if ($filters['payment'] !== 'all') {
+            $params['payment'] = $filters['payment'];
+        }
+
+        return 'admin.php?' . http_build_query($params);
+    }
+
+    /** @param array<string,mixed> $filters @return list<array<string,mixed>> */
+    public static function allForAdmin(array $filters = []): array
+    {
+        $filters = self::normalizeAdminFilters($filters);
+
+        $sql = 'SELECT o.id, o.public_code, o.user_id, u.email AS user_email,
                     o.customer_name, o.fulfillment, o.payment_method, o.receipt_ref,
                     o.payment_received_at, o.status, o.date_needed, o.time_needed,
                     o.total_php, o.created_at
              FROM orders o
              INNER JOIN users u ON u.id = o.user_id
-             ORDER BY o.created_at DESC, o.id DESC'
-        );
+             WHERE 1=1';
+        $params = [];
+
+        if ($filters['status'] !== 'all') {
+            $sql .= ' AND o.status = :status';
+            $params[':status'] = $filters['status'];
+        }
+
+        if ($filters['payment'] === 'awaiting') {
+            $sql .= ' AND o.payment_received_at IS NULL AND o.status <> \'cancelled\'';
+        } elseif ($filters['payment'] === 'recorded') {
+            $sql .= ' AND o.payment_received_at IS NOT NULL';
+        }
+
+        $sql .= ' ORDER BY o.created_at DESC, o.id DESC';
+
+        $stmt = db()->prepare($sql);
+        $stmt->execute($params);
 
         $rows = $stmt->fetchAll();
         if ($rows === []) {
@@ -276,33 +333,9 @@ final class Orders
                 return;
             }
 
-            $itemStmt = $pdo->prepare(
-                'SELECT product_id, qty
-                 FROM order_items
-                 WHERE order_id = :order_id'
-            );
-            $itemStmt->execute([':order_id' => $orderId]);
-            $items = $itemStmt->fetchAll();
-            self::lockProductsForItems($pdo, $items);
-
-            if ($status === 'cancelled' && $oldStatus !== 'cancelled') {
-                self::restockItems($pdo, $items);
-            } elseif ($oldStatus === 'cancelled' && $status !== 'cancelled') {
-                self::decrementItems($pdo, $items);
-            }
-
-            $updateStmt = $pdo->prepare(
-                'UPDATE orders
-                 SET status = :status
-                 WHERE id = :id'
-            );
-            $updateStmt->execute([
-                ':status' => $status,
-                ':id'     => $orderId,
-            ]);
+            $changed = self::applyStatusChange($pdo, $orderId, $oldStatus, $status);
 
             $pdo->commit();
-            $changed = true;
         } catch (PDOException $e) {
             if ($pdo->inTransaction()) {
                 $pdo->rollBack();
@@ -329,22 +362,94 @@ final class Orders
         }
     }
 
-    public static function markPaymentReceived(int $orderId): void
+    public static function markPaymentReceived(int $orderId): array
     {
         if ($orderId < 1) {
             throw new InvalidArgumentException('Invalid order.');
         }
 
-        if (self::findById($orderId) === null) {
+        $pdo = db();
+        $oldStatus = '';
+        $statusChanged = false;
+
+        try {
+            $pdo->beginTransaction();
+
+            $stmt = $pdo->prepare(
+                'SELECT id, status, payment_received_at
+                 FROM orders
+                 WHERE id = :id
+                 FOR UPDATE'
+            );
+            $stmt->execute([':id' => $orderId]);
+            $order = $stmt->fetch();
+
+            if ($order === false) {
+                $pdo->rollBack();
+                throw new RuntimeException('Order not found.');
+            }
+
+            $oldStatus = (string) $order['status'];
+
+            if ($oldStatus === 'cancelled') {
+                $pdo->rollBack();
+                throw new InvalidArgumentException('Cancelled orders cannot be marked paid.');
+            }
+
+            if ($order['payment_received_at'] !== null) {
+                $pdo->commit();
+
+                $current = self::findById($orderId);
+                if ($current === null) {
+                    throw new RuntimeException('Order not found.');
+                }
+
+                return $current;
+            }
+
+            $payStmt = $pdo->prepare(
+                'UPDATE orders
+                 SET payment_received_at = NOW()
+                 WHERE id = :id'
+            );
+            $payStmt->execute([':id' => $orderId]);
+
+            if ($oldStatus === 'pending') {
+                $statusChanged = self::applyStatusChange($pdo, $orderId, $oldStatus, 'processing');
+            }
+
+            $pdo->commit();
+        } catch (PDOException $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+
+            throw $e;
+        } catch (RuntimeException | InvalidArgumentException $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+
+            throw $e;
+        }
+
+        if ($statusChanged) {
+            try {
+                $fresh = self::findById($orderId);
+                if ($fresh !== null) {
+                    Mailer::statusChanged($fresh, $oldStatus, 'processing');
+                }
+            } catch (Throwable $e) {
+                // Mail must never undo a committed status change.
+            }
+        }
+
+        $updated = self::findById($orderId);
+        if ($updated === null) {
             throw new RuntimeException('Order not found.');
         }
 
-        $stmt = db()->prepare(
-            'UPDATE orders
-             SET payment_received_at = NOW()
-             WHERE id = :id AND payment_received_at IS NULL'
-        );
-        $stmt->execute([':id' => $orderId]);
+        return $updated;
     }
 
     public static function normalizeStatus(string $raw): string
@@ -407,6 +512,127 @@ final class Orders
             'gray'    => 'text-gray-600',
             default   => 'text-amber-600',
         };
+    }
+
+    /**
+     * @return array{
+     *   awaiting_payment: int,
+     *   paid_count: int,
+     *   by_status: array{pending: int, processing: int, delivered: int, cancelled: int},
+     *   revenue_7d_php: int,
+     *   revenue_30d_php: int,
+     *   by_fulfillment: array{pickup: int, delivery: int},
+     *   by_payment_method: array{Pay at Shop: int, GCash: int, BDO: int, BPI: int},
+     *   top_products: list<array{name: string, qty: int, revenue_php: int}>
+     * }
+     */
+    public static function analytics(
+        ?DateTimeImmutable $since7d = null,
+        ?DateTimeImmutable $since30d = null
+    ): array {
+        $since7d ??= new DateTimeImmutable('-7 days');
+        $since30d ??= new DateTimeImmutable('-30 days');
+
+        $stmt = db()->prepare(
+            'SELECT
+                SUM(CASE WHEN payment_received_at IS NULL AND status <> \'cancelled\' THEN 1 ELSE 0 END) AS awaiting_payment,
+                SUM(CASE WHEN payment_received_at IS NOT NULL AND status <> \'cancelled\' THEN 1 ELSE 0 END) AS paid_count,
+                SUM(CASE WHEN status = \'pending\' THEN 1 ELSE 0 END) AS pending,
+                SUM(CASE WHEN status = \'processing\' THEN 1 ELSE 0 END) AS processing,
+                SUM(CASE WHEN status = \'delivered\' THEN 1 ELSE 0 END) AS delivered,
+                SUM(CASE WHEN status = \'cancelled\' THEN 1 ELSE 0 END) AS cancelled,
+                COALESCE(SUM(CASE WHEN status <> \'cancelled\' AND created_at >= :since7d THEN total_php ELSE 0 END), 0) AS revenue_7d,
+                COALESCE(SUM(CASE WHEN status <> \'cancelled\' AND created_at >= :since30d THEN total_php ELSE 0 END), 0) AS revenue_30d,
+                SUM(CASE WHEN status <> \'cancelled\' AND fulfillment = \'pickup\' THEN 1 ELSE 0 END) AS pickup,
+                SUM(CASE WHEN status <> \'cancelled\' AND fulfillment = \'delivery\' THEN 1 ELSE 0 END) AS delivery,
+                SUM(CASE WHEN status <> \'cancelled\' AND payment_method = \'Pay at Shop\' THEN 1 ELSE 0 END) AS pay_at_shop,
+                SUM(CASE WHEN status <> \'cancelled\' AND payment_method = \'GCash\' THEN 1 ELSE 0 END) AS gcash,
+                SUM(CASE WHEN status <> \'cancelled\' AND payment_method = \'BDO\' THEN 1 ELSE 0 END) AS bdo,
+                SUM(CASE WHEN status <> \'cancelled\' AND payment_method = \'BPI\' THEN 1 ELSE 0 END) AS bpi
+             FROM orders'
+        );
+        $stmt->execute([
+            ':since7d'  => $since7d->format('Y-m-d H:i:s'),
+            ':since30d' => $since30d->format('Y-m-d H:i:s'),
+        ]);
+
+        $row = $stmt->fetch();
+        if ($row === false) {
+            return self::emptyAnalytics();
+        }
+
+        $topStmt = db()->query(
+            'SELECT oi.product_name_snapshot AS name,
+                    SUM(oi.qty) AS qty,
+                    COALESCE(SUM(oi.qty * oi.unit_price_php_snapshot), 0) AS revenue_php
+             FROM order_items oi
+             INNER JOIN orders o ON o.id = oi.order_id
+             WHERE o.status <> \'cancelled\'
+             GROUP BY oi.product_name_snapshot
+             ORDER BY qty DESC, revenue_php DESC, oi.product_name_snapshot ASC
+             LIMIT 5'
+        );
+
+        $topProducts = [];
+        foreach ($topStmt->fetchAll() as $productRow) {
+            $topProducts[] = [
+                'name'        => (string) $productRow['name'],
+                'qty'         => (int) $productRow['qty'],
+                'revenue_php' => (int) $productRow['revenue_php'],
+            ];
+        }
+
+        return [
+            'awaiting_payment' => (int) $row['awaiting_payment'],
+            'paid_count'       => (int) $row['paid_count'],
+            'by_status'        => [
+                'pending'    => (int) $row['pending'],
+                'processing' => (int) $row['processing'],
+                'delivered'  => (int) $row['delivered'],
+                'cancelled'  => (int) $row['cancelled'],
+            ],
+            'revenue_7d_php'   => (int) $row['revenue_7d'],
+            'revenue_30d_php'  => (int) $row['revenue_30d'],
+            'by_fulfillment'   => [
+                'pickup'   => (int) $row['pickup'],
+                'delivery' => (int) $row['delivery'],
+            ],
+            'by_payment_method' => [
+                'Pay at Shop' => (int) $row['pay_at_shop'],
+                'GCash'       => (int) $row['gcash'],
+                'BDO'         => (int) $row['bdo'],
+                'BPI'         => (int) $row['bpi'],
+            ],
+            'top_products' => $topProducts,
+        ];
+    }
+
+    /** @return array{awaiting_payment: int, paid_count: int, by_status: array{pending: int, processing: int, delivered: int, cancelled: int}, revenue_7d_php: int, revenue_30d_php: int, by_fulfillment: array{pickup: int, delivery: int}, by_payment_method: array{Pay at Shop: int, GCash: int, BDO: int, BPI: int}, top_products: list<array{name: string, qty: int, revenue_php: int}>} */
+    private static function emptyAnalytics(): array
+    {
+        return [
+            'awaiting_payment' => 0,
+            'paid_count'       => 0,
+            'by_status'        => [
+                'pending'    => 0,
+                'processing' => 0,
+                'delivered'  => 0,
+                'cancelled'  => 0,
+            ],
+            'revenue_7d_php'   => 0,
+            'revenue_30d_php'  => 0,
+            'by_fulfillment'   => [
+                'pickup'   => 0,
+                'delivery' => 0,
+            ],
+            'by_payment_method' => [
+                'Pay at Shop' => 0,
+                'GCash'       => 0,
+                'BDO'         => 0,
+                'BPI'         => 0,
+            ],
+            'top_products' => [],
+        ];
     }
 
     /** @return array{revenue_php: int, order_count: int, pending_count: int, buyer_count: int, avg_order_php: int} */
@@ -758,6 +984,44 @@ final class Orders
         }
 
         return $labels;
+    }
+
+    private static function applyStatusChange(
+        PDO $pdo,
+        int $orderId,
+        string $oldStatus,
+        string $newStatus
+    ): bool {
+        if ($oldStatus === $newStatus) {
+            return false;
+        }
+
+        $itemStmt = $pdo->prepare(
+            'SELECT product_id, qty
+             FROM order_items
+             WHERE order_id = :order_id'
+        );
+        $itemStmt->execute([':order_id' => $orderId]);
+        $items = $itemStmt->fetchAll();
+        self::lockProductsForItems($pdo, $items);
+
+        if ($newStatus === 'cancelled' && $oldStatus !== 'cancelled') {
+            self::restockItems($pdo, $items);
+        } elseif ($oldStatus === 'cancelled' && $newStatus !== 'cancelled') {
+            self::decrementItems($pdo, $items);
+        }
+
+        $updateStmt = $pdo->prepare(
+            'UPDATE orders
+             SET status = :status
+             WHERE id = :id'
+        );
+        $updateStmt->execute([
+            ':status' => $newStatus,
+            ':id'     => $orderId,
+        ]);
+
+        return true;
     }
 
     /** @param list<array<string,mixed>> $items */

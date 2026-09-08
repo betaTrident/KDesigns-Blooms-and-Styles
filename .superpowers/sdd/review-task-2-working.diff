@@ -1,0 +1,281 @@
+﻿# Review package: Task 2 uncommitted working tree
+# Base: Task 1 working tree files vs Task 2 additions
+# Head: working tree (no commit)
+
+## Commits
+(none)
+
+## Files changed
+ M views/admin/dashboard.php
+?? public/assets/js/admin.js
+?? views/partials/admin-payment-dialog.php
+
+## Diff dashboard.php
+
+diff --git a/views/admin/dashboard.php b/views/admin/dashboard.php
+index a08204f..fac9ea4 100644
+--- a/views/admin/dashboard.php
++++ b/views/admin/dashboard.php
+@@ -13,20 +13,26 @@ declare(strict_types=1);
+ 
+     <!-- MAIN CONTENT AREA -->
+     <main class="flex-1 overflow-y-auto bg-[#f6f3eb] p-3 sm:p-6 md:p-10 w-full min-w-0">
+ 
+         <?php if ($flashError !== ''): ?>
+             <div class="mb-6 px-4 py-3 bg-red-50 border border-red-200 rounded text-sm text-red-800">
+                 <?= e($flashError); ?>
+             </div>
+         <?php endif; ?>
+ 
++        <?php if (($flashSuccess ?? '') !== ''): ?>
++            <div class="mb-6 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded text-sm text-emerald-800">
++                <?= e($flashSuccess); ?>
++            </div>
++        <?php endif; ?>
++
+         <!-- Top Bar Date Display -->
+         <div class="flex items-center justify-between gap-3 mb-6">
+             <button type="button" id="admin-menu-toggle" class="md:hidden inline-flex items-center justify-center gap-2 px-3 py-2 bg-[#4c1719] text-white rounded text-xs font-bold uppercase tracking-wider" aria-controls="admin-sidebar" aria-expanded="false">
+                 <i class="fa-solid fa-bars"></i> Menu
+             </button>
+             <div class="bg-white px-4 py-2 rounded border border-gray-200 text-xs text-gray-700 shadow-sm font-medium ml-auto">
+                 <?= e(date('D, F j, Y')); ?>
+             </div>
+         </div>
+ 
+@@ -170,25 +176,32 @@ declare(strict_types=1);
+                                 <div class="pt-2 border-t border-gray-100">
+                                     <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Payment</p>
+                                     <?php if ($paymentReceived): ?>
+                                         <span class="text-emerald-700 font-semibold text-xs">Payment recorded</span>
+                                     <?php else: ?>
+                                         <div class="space-y-3">
+                                             <span class="text-amber-700 font-semibold text-xs">Awaiting payment</span>
+                                             <?php if ($receiptRef !== ''): ?>
+                                                 <p class="text-[10px] text-gray-500">Ref <?= e($receiptRef); ?></p>
+                                             <?php endif; ?>
+-                                            <form action="" method="POST">
+-                                                <?= csrf_field() ?>
+-                                                <input type="hidden" name="order_id" value="<?= (int) $ord['id']; ?>">
+-                                                <button type="submit" name="confirm_payment" value="1" class="w-full px-3 py-2 bg-emerald-700 text-white rounded text-[10px] font-bold uppercase">Record payment</button>
+-                                            </form>
++                                            <button
++                                                type="button"
++                                                data-payment-open
++                                                data-order-id="<?= (int) $ord['id']; ?>"
++                                                data-code="<?= e($ord['public_code']); ?>"
++                                                data-customer="<?= e($ord['customer_name']); ?>"
++                                                data-total="<?= e(Catalog::formatPrice((int) $ord['total_php'])); ?>"
++                                                data-method="<?= e($ord['payment_method']); ?>"
++                                                data-ref="<?= e($receiptRef); ?>"
++                                                aria-label="Record payment for <?= e($ord['public_code']); ?>"
++                                                class="w-full px-3 py-2 bg-emerald-700 text-white rounded text-[10px] font-bold uppercase hover:bg-emerald-800"
++                                            >Record payment</button>
+                                         </div>
+                                     <?php endif; ?>
+                                 </div>
+                                 <div class="pt-2 border-t border-gray-100">
+                                     <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Update Status</p>
+                                     <form action="" method="POST" class="flex flex-col gap-2">
+                                         <?= csrf_field() ?>
+                                         <input type="hidden" name="order_id" value="<?= (int) $ord['id']; ?>">
+                                         <select name="new_status" class="w-full px-2 py-2 bg-white border border-gray-300 rounded text-xs">
+                                             <?php foreach (Orders::STATUSES as $statusOption): ?>
+@@ -246,25 +259,32 @@ declare(strict_types=1);
+                                         $receiptRef = trim((string) ($ord['receipt_ref'] ?? ''));
+                                         ?>
+                                         <?php if ($paymentReceived): ?>
+                                             <span class="text-emerald-700 font-semibold">Payment recorded</span>
+                                         <?php else: ?>
+                                             <div class="space-y-2">
+                                                 <span class="text-amber-700 font-semibold">Awaiting payment</span>
+                                                 <?php if ($receiptRef !== ''): ?>
+                                                     <p class="text-[10px] text-gray-500">Ref <?= e($receiptRef); ?></p>
+                                                 <?php endif; ?>
+-                                                <form action="" method="POST">
+-                                                    <?= csrf_field() ?>
+-                                                    <input type="hidden" name="order_id" value="<?= (int) $ord['id']; ?>">
+-                                                    <button type="submit" name="confirm_payment" value="1" class="px-2 py-1 bg-emerald-700 text-white rounded text-[10px] font-bold uppercase">Record payment</button>
+-                                                </form>
++                                                <button
++                                                    type="button"
++                                                    data-payment-open
++                                                    data-order-id="<?= (int) $ord['id']; ?>"
++                                                    data-code="<?= e($ord['public_code']); ?>"
++                                                    data-customer="<?= e($ord['customer_name']); ?>"
++                                                    data-total="<?= e(Catalog::formatPrice((int) $ord['total_php'])); ?>"
++                                                    data-method="<?= e($ord['payment_method']); ?>"
++                                                    data-ref="<?= e($receiptRef); ?>"
++                                                    aria-label="Record payment for <?= e($ord['public_code']); ?>"
++                                                    class="px-2 py-1 bg-emerald-700 text-white rounded text-[10px] font-bold uppercase hover:bg-emerald-800"
++                                                >Record payment</button>
+                                             </div>
+                                         <?php endif; ?>
+                                     </td>
+                                     <td class="p-4">
+                                         <form action="" method="POST" class="flex flex-wrap gap-2">
+                                             <?= csrf_field() ?>
+                                             <input type="hidden" name="order_id" value="<?= (int) $ord['id']; ?>">
+                                             <select name="new_status" class="px-2 py-1 bg-white border border-gray-300 rounded text-xs">
+                                                 <?php foreach (Orders::STATUSES as $statusOption): ?>
+                                                     <option value="<?= e($statusOption); ?>" <?= $orderStatus === $statusOption ? 'selected' : ''; ?>><?= e(Orders::statusLabel($statusOption)); ?></option>
+@@ -464,13 +484,15 @@ declare(strict_types=1);
+                                 </tr>
+                             <?php endforeach; ?>
+                         <?php endif; ?>
+                     </tbody>
+                 </table>
+                 </div>
+             </div>
+         <?php endif; ?>
+ 
+     </main>
++    <?php View::render('partials/admin-payment-dialog'); ?>
+     <script src="<?= e(kd_asset('assets/js/nav.js')); ?>" defer></script>
++    <script src="<?= e(kd_asset('assets/js/admin.js')); ?>" defer></script>
+ </body>
+ </html>
+
+## New file: views/partials/admin-payment-dialog.php
+
+diff --git a/views/partials/admin-payment-dialog.php b/views/partials/admin-payment-dialog.php
+new file mode 100644
+index 0000000..5eeeb24
+--- /dev/null
++++ b/views/partials/admin-payment-dialog.php
+@@ -0,0 +1,16 @@
++<?php
++declare(strict_types=1);
++?>
++<dialog id="payment-confirm" class="payment-confirm-dialog rounded border border-gray-200 bg-white shadow-xl max-w-md w-[calc(100%-2rem)] p-0 backdrop:bg-black/50" aria-labelledby="payment-confirm-title">
++    <form method="POST" action="admin.php?tab=orders" class="p-6 space-y-4">
++        <?= csrf_field(); ?>
++        <input type="hidden" name="order_id" id="payment-confirm-order-id" value="">
++        <h2 id="payment-confirm-title" class="font-serif font-bold text-lg text-gray-900">Confirm payment</h2>
++        <p class="text-sm text-gray-700">Record payment for <strong id="payment-confirm-code" class="text-gray-900"></strong>?</p>
++        <p id="payment-confirm-meta" class="text-xs text-gray-500"></p>
++        <div class="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-2">
++            <button type="button" value="cancel" data-payment-cancel class="px-4 py-2 border border-gray-300 rounded text-[10px] font-bold uppercase text-gray-700 hover:bg-gray-50">Cancel</button>
++            <button type="submit" name="confirm_payment" value="1" class="px-4 py-2 bg-emerald-700 text-white rounded text-[10px] font-bold uppercase hover:bg-emerald-800">Confirm payment</button>
++        </div>
++    </form>
++</dialog>
+
+## New file: public/assets/js/admin.js
+
+diff --git a/public/assets/js/admin.js b/public/assets/js/admin.js
+new file mode 100644
+index 0000000..7000bd1
+--- /dev/null
++++ b/public/assets/js/admin.js
+@@ -0,0 +1,84 @@
++document.addEventListener('DOMContentLoaded', () => {
++    const dialog = document.getElementById('payment-confirm');
++    if (!dialog) {
++        return;
++    }
++
++    const orderIdInput = document.getElementById('payment-confirm-order-id');
++    const codeEl = document.getElementById('payment-confirm-code');
++    const metaEl = document.getElementById('payment-confirm-meta');
++    const cancelBtn = dialog.querySelector('[data-payment-cancel]');
++    let triggerButton = null;
++
++    const restoreFocus = () => {
++        if (triggerButton) {
++            triggerButton.focus();
++            triggerButton = null;
++        }
++    };
++
++    const closeDialog = () => {
++        if (!dialog.open) {
++            return;
++        }
++        dialog.close();
++    };
++
++    const buildMetaLine = (button) => {
++        const parts = [];
++        const customer = button.dataset.customer || '';
++        const total = button.dataset.total || '';
++        const method = button.dataset.method || '';
++        const ref = button.dataset.ref || '';
++
++        if (customer !== '') {
++            parts.push(`Customer: ${customer}`);
++        }
++        if (total !== '') {
++            parts.push(total);
++        }
++        if (method !== '') {
++            parts.push(method);
++        }
++        if (ref !== '') {
++            parts.push(`Ref ${ref}`);
++        }
++
++        return parts.join(' ┬╖ ');
++    };
++
++    document.querySelectorAll('[data-payment-open]').forEach((button) => {
++        button.addEventListener('click', () => {
++            triggerButton = button;
++
++            if (orderIdInput) {
++                orderIdInput.value = button.dataset.orderId || '';
++            }
++            if (codeEl) {
++                codeEl.textContent = button.dataset.code || '';
++            }
++            if (metaEl) {
++                metaEl.textContent = buildMetaLine(button);
++            }
++
++            dialog.showModal();
++        });
++    });
++
++    cancelBtn?.addEventListener('click', closeDialog);
++
++    dialog.addEventListener('close', restoreFocus);
++
++    dialog.addEventListener('click', (event) => {
++        const rect = dialog.getBoundingClientRect();
++        const clickedInDialog =
++            rect.top <= event.clientY &&
++            event.clientY <= rect.top + rect.height &&
++            rect.left <= event.clientX &&
++            event.clientX <= rect.left + rect.width;
++
++        if (!clickedInDialog) {
++            closeDialog();
++        }
++    });
++});
+
+## Diff resources/css/app.css
+
+diff --git a/resources/css/app.css b/resources/css/app.css
+index d3a8718..a6bb57c 100644
+--- a/resources/css/app.css
++++ b/resources/css/app.css
+@@ -59,10 +59,18 @@
+   line-height: 2rem;
+ }
+ 
+ @media (min-width: 768px) {
+   .admin-page-title {
+     font-size: 1.875rem;
+     line-height: 2.25rem;
+   }
+ }
+ 
++.payment-confirm-dialog::backdrop {
++  background: rgb(0 0 0 / 0.5);
++}
++
++.payment-confirm-dialog {
++  margin: auto;
++}
++

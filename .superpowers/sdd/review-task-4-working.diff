@@ -1,0 +1,1763 @@
+﻿# Review package: Task 4 uncommitted working tree
+# Head: working tree (no commit)
+# Note: admin.php and dashboard.php diffs vs git HEAD also include Tasks 1-3. Judge Task 4 requirements. Catalog.php, CatalogCrudTest.php, admin-product-dialog.php, and admin.js product wiring are the Task 4 core.
+
+## Commits
+(none)
+
+## Files changed
+ public/admin.php          | 138 ++++++++++++++++++++-
+ src/Catalog.php           | 249 +++++++++++++++++++++++++++++++++++++
+ views/admin/dashboard.php | 304 ++++++++++++++++++++++++++++++++++++++--------
+ 3 files changed, 636 insertions(+), 55 deletions(-)
+
+## Diff src/Catalog.php
+
+diff --git a/src/Catalog.php b/src/Catalog.php
+index 1e0bafa..6b55091 100644
+--- a/src/Catalog.php
++++ b/src/Catalog.php
+@@ -2,20 +2,26 @@
+ declare(strict_types=1);
+ 
+ require_once dirname(__DIR__) . '/config/db.php';
+ 
+ final class Catalog
+ {
+     private const SELECT_COLUMNS = '
+         id, name, slug, category, description, price_php, image_path, stock, badge, is_active
+     ';
+ 
++    /** @var list<string> */
++    private const CATEGORIES = ['fresh', 'dried', 'bloombox', 'glassdome', 'others'];
++
++    /** @var list<string> */
++    private const BADGES = ['Bestseller', 'Limited', 'Luxury', 'New'];
++
+     /** @return list<array<string,mixed>> */
+     public static function allActive(): array
+     {
+         $stmt = db()->query(
+             'SELECT ' . self::SELECT_COLUMNS . '
+              FROM products
+              WHERE is_active = 1
+              ORDER BY id ASC'
+         );
+ 
+@@ -181,20 +187,160 @@ final class Catalog
+         $stmt->execute([
+             ':qty' => $qty,
+             ':id'  => $id,
+         ]);
+ 
+         if (self::findById($id) === null) {
+             throw new RuntimeException('Product not found.');
+         }
+     }
+ 
++    public static function normalizeSlug(string $name): string
++    {
++        $slug = strtolower(trim($name));
++        $slug = preg_replace('/[^a-z0-9]+/', '-', $slug) ?? '';
++        $slug = trim($slug, '-');
++
++        if ($slug === '') {
++            $slug = 'product';
++        }
++
++        if (strlen($slug) > 180) {
++            $slug = rtrim(substr($slug, 0, 180), '-');
++        }
++
++        return $slug;
++    }
++
++    public static function uniqueSlug(string $base, ?int $ignoreId = null): string
++    {
++        $candidate = $base;
++        $suffix = 2;
++
++        while (self::slugTaken($candidate, $ignoreId)) {
++            $suffixStr = '-' . (string) $suffix;
++            $maxBaseLen = 180 - strlen($suffixStr);
++            $truncated = rtrim(substr($base, 0, max(1, $maxBaseLen)), '-');
++            $candidate = $truncated . $suffixStr;
++            ++$suffix;
++        }
++
++        return $candidate;
++    }
++
++    /** @param array<string,mixed> $input */
++    public static function create(array $input): int
++    {
++        $data = self::validateInput($input, true);
++
++        $slug = self::uniqueSlug(self::normalizeSlug($data['name']));
++
++        $stmt = db()->prepare(
++            'INSERT INTO products (name, slug, category, description, price_php, image_path, stock, badge, is_active)
++             VALUES (:name, :slug, :category, :description, :price_php, :image_path, :stock, :badge, :is_active)'
++        );
++        $stmt->execute([
++            ':name'        => $data['name'],
++            ':slug'        => $slug,
++            ':category'    => $data['category'],
++            ':description' => $data['description'],
++            ':price_php'   => $data['price_php'],
++            ':image_path'  => $data['image_path'],
++            ':stock'       => $data['stock'],
++            ':badge'       => $data['badge'],
++            ':is_active'   => $data['is_active'],
++        ]);
++
++        return (int) db()->lastInsertId();
++    }
++
++    /** @param array<string,mixed> $input */
++    public static function update(int $id, array $input): void
++    {
++        $existing = self::findById($id);
++        if ($existing === null) {
++            throw new RuntimeException('Product not found.');
++        }
++
++        $data = self::validateInput($input, false);
++        if (!array_key_exists('image_path', $input) || $data['image_path'] === null) {
++            $data['image_path'] = (string) $existing['image_path'];
++        }
++
++        $slug = self::uniqueSlug(self::normalizeSlug($data['name']), $id);
++
++        $stmt = db()->prepare(
++            'UPDATE products
++             SET name = :name,
++                 slug = :slug,
++                 category = :category,
++                 description = :description,
++                 price_php = :price_php,
++                 image_path = :image_path,
++                 stock = :stock,
++                 badge = :badge,
++                 is_active = :is_active
++             WHERE id = :id'
++        );
++        $stmt->execute([
++            ':name'        => $data['name'],
++            ':slug'        => $slug,
++            ':category'    => $data['category'],
++            ':description' => $data['description'],
++            ':price_php'   => $data['price_php'],
++            ':image_path'  => $data['image_path'],
++            ':stock'       => $data['stock'],
++            ':badge'       => $data['badge'],
++            ':is_active'   => $data['is_active'],
++            ':id'          => $id,
++        ]);
++    }
++
++    public static function setActive(int $id, bool $active): void
++    {
++        $stmt = db()->prepare(
++            'UPDATE products SET is_active = :is_active WHERE id = :id'
++        );
++        $stmt->execute([
++            ':is_active' => $active ? 1 : 0,
++            ':id'        => $id,
++        ]);
++
++        if (self::findById($id) === null) {
++            throw new RuntimeException('Product not found.');
++        }
++    }
++
++    public static function hasOrderItems(int $id): bool
++    {
++        $stmt = db()->prepare(
++            'SELECT COUNT(*) FROM order_items WHERE product_id = :id'
++        );
++        $stmt->execute([':id' => $id]);
++
++        return (int) $stmt->fetchColumn() > 0;
++    }
++
++    public static function deleteIfUnused(int $id): void
++    {
++        if (self::hasOrderItems($id)) {
++            throw new RuntimeException('This product is on past orders. Hide it instead.');
++        }
++
++        $stmt = db()->prepare('DELETE FROM products WHERE id = :id');
++        $stmt->execute([':id' => $id]);
++
++        if ($stmt->rowCount() === 0) {
++            throw new RuntimeException('Product not found.');
++        }
++    }
++
+     public static function categoryLabel(string $category): string
+     {
+         return match ($category) {
+             'fresh'     => 'FRESH BOUQUET',
+             'dried'     => 'DRIED BOUQUET',
+             'bloombox'  => 'BLOOM BOX',
+             'glassdome' => 'GLASS DOME',
+             'others'    => 'OTHERS',
+             default     => strtoupper($category),
+         };
+@@ -232,20 +378,123 @@ final class Catalog
+             'text'  => $stock . ' in stock',
+             'class' => 'in-stock',
+         ];
+     }
+ 
+     public static function formatPrice(int $pricePhp): string
+     {
+         return 'Γé▒' . number_format($pricePhp);
+     }
+ 
++    private static function slugTaken(string $slug, ?int $ignoreId = null): bool
++    {
++        if ($ignoreId !== null) {
++            $stmt = db()->prepare(
++                'SELECT id FROM products WHERE slug = :slug AND id != :ignore_id LIMIT 1'
++            );
++            $stmt->execute([':slug' => $slug, ':ignore_id' => $ignoreId]);
++        } else {
++            $stmt = db()->prepare('SELECT id FROM products WHERE slug = :slug LIMIT 1');
++            $stmt->execute([':slug' => $slug]);
++        }
++
++        return $stmt->fetch() !== false;
++    }
++
++    private static function validateImagePath(string $imagePath): string
++    {
++        $path = str_replace('\\', '/', trim($imagePath));
++        $path = ltrim($path, '/');
++        if ($path === '' || str_contains($path, '..')) {
++            throw new InvalidArgumentException('Invalid image path.');
++        }
++        if (!str_starts_with($path, 'images/') && !str_starts_with($path, 'uploads/')) {
++            throw new InvalidArgumentException('Invalid image path.');
++        }
++
++        return $path;
++    }
++
++    /**
++     * @param array<string,mixed> $input
++     * @return array{name: string, category: string, description: ?string, price_php: int, stock: int, badge: ?string, is_active: int, image_path: ?string}
++     */
++    private static function validateInput(array $input, bool $requireImage): array
++    {
++        $name = trim((string) ($input['name'] ?? ''));
++        if ($name === '' || strlen($name) > 160) {
++            throw new InvalidArgumentException('Product name must be 1ΓÇô160 characters.');
++        }
++
++        $category = (string) ($input['category'] ?? '');
++        if (!in_array($category, self::CATEGORIES, true)) {
++            throw new InvalidArgumentException('Invalid product category.');
++        }
++
++        $descriptionRaw = $input['description'] ?? null;
++        $description = null;
++        if ($descriptionRaw !== null && $descriptionRaw !== '') {
++            $description = trim((string) $descriptionRaw);
++            if (strlen($description) > 2000) {
++                throw new InvalidArgumentException('Description must be at most 2000 characters.');
++            }
++        }
++
++        $pricePhp = filter_var($input['price_php'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 999999]]);
++        if ($pricePhp === false) {
++            throw new InvalidArgumentException('Price must be between 1 and 999999.');
++        }
++
++        $stock = filter_var($input['stock'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0, 'max_range' => 99999]]);
++        if ($stock === false) {
++            throw new InvalidArgumentException('Stock must be between 0 and 99999.');
++        }
++
++        $badgeRaw = $input['badge'] ?? null;
++        $badge = null;
++        if ($badgeRaw !== null && $badgeRaw !== '') {
++            $badge = (string) $badgeRaw;
++            if (!in_array($badge, self::BADGES, true)) {
++                throw new InvalidArgumentException('Invalid badge.');
++            }
++        }
++
++        $isActiveRaw = $input['is_active'] ?? 1;
++        $isActive = filter_var($isActiveRaw, FILTER_VALIDATE_INT);
++        if ($isActive !== 0 && $isActive !== 1) {
++            throw new InvalidArgumentException('Active flag must be 0 or 1.');
++        }
++
++        $imagePath = null;
++        if (array_key_exists('image_path', $input)) {
++            $rawPath = trim((string) $input['image_path']);
++            if ($rawPath !== '') {
++                $imagePath = self::validateImagePath($rawPath);
++            }
++        }
++
++        if ($requireImage && ($imagePath === null || $imagePath === '')) {
++            throw new InvalidArgumentException('Image is required.');
++        }
++
++        return [
++            'name'        => $name,
++            'category'    => $category,
++            'description' => $description,
++            'price_php'   => (int) $pricePhp,
++            'stock'       => (int) $stock,
++            'badge'       => $badge,
++            'is_active'   => (int) $isActive,
++            'image_path'  => $imagePath,
++        ];
++    }
++
+     /** @param array<string,mixed> $row */
+     private static function mapRow(array $row): array
+     {
+         return [
+             'id'          => (int) $row['id'],
+             'name'        => (string) $row['name'],
+             'slug'        => (string) $row['slug'],
+             'category'    => (string) $row['category'],
+             'description' => $row['description'] !== null ? (string) $row['description'] : null,
+             'price_php'   => (int) $row['price_php'],
+
+## Diff public/admin.php
+
+diff --git a/public/admin.php b/public/admin.php
+index 0edecd2..860a68a 100644
+--- a/public/admin.php
++++ b/public/admin.php
+@@ -10,50 +10,75 @@ require_once KD_ROOT . '/src/Uploads.php';
+ 
+ Auth::requireAdmin();
+ check_session_timeout(1800);
+ 
+ $tab = $_GET['tab'] ?? 'overview';
+ $allowed_tabs = ['overview', 'orders', 'inventory', 'buyers'];
+ if (!in_array($tab, $allowed_tabs, true)) {
+     $tab = 'overview';
+ }
+ 
++$orderFilterRaw = [
++    'status'  => $_GET['status'] ?? 'all',
++    'payment' => $_GET['payment'] ?? 'all',
++];
++if ($_SERVER['REQUEST_METHOD'] === 'POST') {
++    if (array_key_exists('filter_status', $_POST)) {
++        $orderFilterRaw['status'] = (string) $_POST['filter_status'];
++    }
++    if (array_key_exists('filter_payment', $_POST)) {
++        $orderFilterRaw['payment'] = (string) $_POST['filter_payment'];
++    }
++}
++$orderFilters = Orders::normalizeAdminFilters($orderFilterRaw);
++$ordersTabUrl = Orders::adminOrdersUrl($orderFilters);
++
+ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+     enforce_csrf();
+     if (isset($_POST['update_order_status'])) {
+         $orderId = filter_var($_POST['order_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+         $newStatus = Orders::normalizeStatus((string) ($_POST['new_status'] ?? ''));
+ 
+         if ($orderId !== false && in_array($newStatus, Orders::STATUSES, true)) {
+             try {
+                 Orders::updateStatus((int) $orderId, $newStatus);
+             } catch (InvalidArgumentException | RuntimeException $e) {
+                 $_SESSION['admin_flash_error'] = $e->getMessage();
+             } catch (PDOException $e) {
+                 $_SESSION['admin_flash_error'] = 'Could not update that order. Please try again.';
+             }
+         }
+ 
+-        kd_redirect('admin.php?tab=orders');
++        kd_redirect($ordersTabUrl);
+     }
+     if (isset($_POST['confirm_payment'])) {
+         $orderId = filter_var($_POST['order_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+         if ($orderId !== false) {
+             try {
+-                Orders::markPaymentReceived((int) $orderId);
++                $before = Orders::findById((int) $orderId);
++                $order = Orders::markPaymentReceived((int) $orderId);
++                if (
++                    $before !== null
++                    && $before['status'] === 'pending'
++                    && ($order['status'] ?? '') === 'processing'
++                ) {
++                    $_SESSION['admin_flash_success'] = 'Payment recorded. Status is now Processing.';
++                } else {
++                    $_SESSION['admin_flash_success'] = 'Payment recorded.';
++                }
+             } catch (InvalidArgumentException | RuntimeException $e) {
+                 $_SESSION['admin_flash_error'] = $e->getMessage();
+             } catch (PDOException $e) {
+                 $_SESSION['admin_flash_error'] = 'Could not record payment. Please try again.';
+             }
+         }
+-        kd_redirect('admin.php?tab=orders');
++        kd_redirect($ordersTabUrl);
+     }
+     if (isset($_POST['restock_item'])) {
+         $pid = filter_var($_POST['product_id'] ?? 0, FILTER_VALIDATE_INT);
+         $qty = filter_var($_POST['restock_qty'] ?? -1, FILTER_VALIDATE_INT);
+         if ($pid !== false && $qty !== false && $qty >= 0 && $qty <= 99999) {
+             try {
+                 Catalog::updateStock((int) $pid, (int) $qty);
+             } catch (InvalidArgumentException | RuntimeException $ex) {
+                 // Invalid product or quantity ΓÇö inventory page still reloads
+             }
+@@ -62,35 +87,138 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+                 try {
+                     $stored = Uploads::store($_FILES['product_image']);
+                     Catalog::updateImage((int) $pid, 'uploads/' . $stored);
+                 } catch (InvalidArgumentException | RuntimeException $ex) {
+                     $_SESSION['admin_flash_error'] = $ex->getMessage();
+                 }
+             }
+         }
+         kd_redirect('admin.php?tab=inventory');
+     }
++    if (isset($_POST['save_product'])) {
++        $productId = filter_var($_POST['product_id'] ?? 0, FILTER_VALIDATE_INT);
++        $input = [
++            'name'        => (string) ($_POST['name'] ?? ''),
++            'category'    => (string) ($_POST['category'] ?? ''),
++            'description' => $_POST['description'] ?? null,
++            'price_php'   => $_POST['price_php'] ?? null,
++            'stock'       => $_POST['stock'] ?? null,
++            'badge'       => $_POST['badge'] ?? null,
++            'is_active'   => isset($_POST['is_active']) ? 1 : 0,
++        ];
++
++        $fileError = (int) ($_FILES['product_image']['error'] ?? UPLOAD_ERR_NO_FILE);
++        if ($fileError !== UPLOAD_ERR_NO_FILE) {
++            try {
++                $stored = Uploads::store($_FILES['product_image']);
++                $input['image_path'] = 'uploads/' . $stored;
++            } catch (InvalidArgumentException | RuntimeException $ex) {
++                $_SESSION['admin_flash_error'] = $ex->getMessage();
++                kd_redirect('admin.php?tab=inventory' . ($productId > 0 ? '&edit=' . $productId : '&new=1'));
++            }
++        } elseif ($productId === false || $productId < 1) {
++            $existingPath = trim((string) ($_POST['image_path'] ?? ''));
++            if ($existingPath !== '') {
++                $input['image_path'] = $existingPath;
++            }
++        }
++
++        try {
++            if ($productId !== false && $productId > 0) {
++                Catalog::update((int) $productId, $input);
++                $_SESSION['admin_flash_success'] = 'Product updated.';
++            } else {
++                Catalog::create($input);
++                $_SESSION['admin_flash_success'] = 'Product created.';
++            }
++        } catch (InvalidArgumentException | RuntimeException $ex) {
++            $_SESSION['admin_flash_error'] = $ex->getMessage();
++            kd_redirect('admin.php?tab=inventory' . ($productId > 0 ? '&edit=' . $productId : '&new=1'));
++        } catch (PDOException $e) {
++            $_SESSION['admin_flash_error'] = 'Could not save that product. Please try again.';
++            kd_redirect('admin.php?tab=inventory' . ($productId > 0 ? '&edit=' . $productId : '&new=1'));
++        }
++
++        kd_redirect('admin.php?tab=inventory');
++    }
++    if (isset($_POST['set_product_active'])) {
++        $pid = filter_var($_POST['product_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
++        $active = filter_var($_POST['is_active'] ?? null, FILTER_VALIDATE_INT);
++        if ($pid !== false && ($active === 0 || $active === 1)) {
++            try {
++                Catalog::setActive((int) $pid, $active === 1);
++                $_SESSION['admin_flash_success'] = $active === 1 ? 'Product is now visible in the shop.' : 'Product hidden from the shop.';
++            } catch (RuntimeException $ex) {
++                $_SESSION['admin_flash_error'] = $ex->getMessage();
++            } catch (PDOException $e) {
++                $_SESSION['admin_flash_error'] = 'Could not update product visibility. Please try again.';
++            }
++        }
++        kd_redirect('admin.php?tab=inventory');
++    }
++    if (isset($_POST['delete_product'])) {
++        $pid = filter_var($_POST['product_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
++        if ($pid !== false) {
++            try {
++                Catalog::deleteIfUnused((int) $pid);
++                $_SESSION['admin_flash_success'] = 'Product permanently deleted.';
++            } catch (InvalidArgumentException | RuntimeException $ex) {
++                $_SESSION['admin_flash_error'] = $ex->getMessage();
++            } catch (PDOException $e) {
++                $_SESSION['admin_flash_error'] = 'Could not delete that product. Please try again.';
++            }
++        }
++        kd_redirect('admin.php?tab=inventory');
++    }
+ }
+ 
+ $stats = Orders::stats();
+-$adminOrders = Orders::allForAdmin();
++$allOrders = Orders::allForAdmin();
++$hasActiveOrderFilters = $orderFilters['status'] !== 'all' || $orderFilters['payment'] !== 'all';
++$adminOrders = ($tab === 'orders' && $hasActiveOrderFilters)
++    ? Orders::allForAdmin($orderFilters)
++    : $allOrders;
+ $buyers = Orders::buyers();
+ $inventory = Catalog::all();
+ $lowStock = array_values(array_filter($inventory, fn($p) => (int) $p['stock'] <= 5));
++
++$inventoryFormMode = null;
++$editProduct = null;
++if ($tab === 'inventory') {
++    if (array_key_exists('new', $_GET)) {
++        $inventoryFormMode = 'new';
++    } elseif (array_key_exists('edit', $_GET)) {
++        $editId = filter_var($_GET['edit'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
++        if ($editId !== false) {
++            $editProduct = Catalog::findById((int) $editId);
++            if ($editProduct !== null) {
++                $inventoryFormMode = 'edit';
++            }
++        }
++    }
++}
++
+ $flashError = (string) ($_SESSION['admin_flash_error'] ?? '');
+ unset($_SESSION['admin_flash_error']);
++$flashSuccess = (string) ($_SESSION['admin_flash_success'] ?? '');
++unset($_SESSION['admin_flash_success']);
+ 
+ View::render('admin/dashboard', [
+     'pageTitle'     => 'Admin Dashboard - KDesigns Blooms & Styles',
+     'cssBundle'     => 'app',
+     'tab'           => $tab,
+     'stats'         => $stats,
+     'adminOrders'   => $adminOrders,
+     'buyers'        => $buyers,
+     'pendingCount'  => (int) $stats['pending_count'],
+     'inventory'     => $inventory,
+     'lowStock'      => $lowStock,
+     'lowStockCount' => count($lowStock),
+     'activeCount'   => count(array_filter($inventory, fn($p) => (int) $p['is_active'] === 1)),
+-    'recentOrders'  => array_slice($adminOrders, 0, 4),
++    'recentOrders'  => array_slice($allOrders, 0, 4),
+     'flashError'    => $flashError,
++    'flashSuccess'  => $flashSuccess,
++    'orderFilters'  => $orderFilters,
++    'ordersTabUrl'  => $ordersTabUrl,
++    'inventoryFormMode' => $inventoryFormMode,
++    'editProduct'       => $editProduct,
+ ]);
+
+## Diff views/admin/dashboard.php (inventory-related; file also has Tasks 1-3)
+
+diff --git a/views/admin/dashboard.php b/views/admin/dashboard.php
+index a08204f..9803d5f 100644
+--- a/views/admin/dashboard.php
++++ b/views/admin/dashboard.php
+@@ -8,25 +8,31 @@ declare(strict_types=1);
+     'pendingCount' => $pendingCount,
+     'lowStockCount' => $lowStockCount,
+ ]); ?>
+ 
+     <div id="admin-sidebar-overlay" class="fixed inset-0 z-40 bg-black/50 hidden md:hidden"></div>
+ 
+     <!-- MAIN CONTENT AREA -->
+     <main class="flex-1 overflow-y-auto bg-[#f6f3eb] p-3 sm:p-6 md:p-10 w-full min-w-0">
+ 
+         <?php if ($flashError !== ''): ?>
+-            <div class="mb-6 px-4 py-3 bg-red-50 border border-red-200 rounded text-sm text-red-800">
++            <div role="alert" class="mb-6 px-4 py-3 bg-red-50 border border-red-200 rounded text-sm text-red-800">
+                 <?= e($flashError); ?>
+             </div>
+         <?php endif; ?>
+ 
++        <?php if (($flashSuccess ?? '') !== ''): ?>
++            <div role="status" class="mb-6 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded text-sm text-emerald-800">
++                <?= e($flashSuccess); ?>
++            </div>
++        <?php endif; ?>
++
+         <!-- Top Bar Date Display -->
+         <div class="flex items-center justify-between gap-3 mb-6">
+             <button type="button" id="admin-menu-toggle" class="md:hidden inline-flex items-center justify-center gap-2 px-3 py-2 bg-[#4c1719] text-white rounded text-xs font-bold uppercase tracking-wider" aria-controls="admin-sidebar" aria-expanded="false">
+                 <i class="fa-solid fa-bars"></i> Menu
+             </button>
+             <div class="bg-white px-4 py-2 rounded border border-gray-200 text-xs text-gray-700 shadow-sm font-medium ml-auto">
+                 <?= e(date('D, F j, Y')); ?>
+             </div>
+         </div>
+ 
+@@ -113,52 +119,85 @@ declare(strict_types=1);
+                                     </div>
+                                     <span class="text-xs font-bold text-amber-700"><?= (int) $p['stock']; ?> left</span>
+                                 </div>
+                             <?php endforeach; ?>
+                         <?php endif; ?>
+                     </div>
+                 </div>
+             </div>
+ 
+         <!-- TAB 2: ORDERS -->
+-        <?php elseif ($tab === 'orders'): ?>
++        <?php elseif ($tab === 'orders'):
++            $hasActiveOrderFilters = ($orderFilters['status'] ?? 'all') !== 'all'
++                || ($orderFilters['payment'] ?? 'all') !== 'all';
++            $ordersEmptyMessage = $hasActiveOrderFilters
++                ? 'No orders match these filters.'
++                : 'No orders yet.';
++        ?>
+             <div class="mb-6">
+                 <p class="text-[10px] tracking-widest font-semibold text-gray-400 uppercase">ORDERS</p>
+                 <h2 class="admin-page-title font-serif font-bold text-gray-900 mt-0.5">Order Management</h2>
+             </div>
+ 
++            <form method="get" action="admin.php" class="mb-4 flex flex-wrap items-end gap-3 bg-white border border-gray-200 rounded shadow-sm p-4">
++                <input type="hidden" name="tab" value="orders">
++                <div>
++                    <label for="filter-status" class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Status</label>
++                    <select id="filter-status" name="status" class="px-3 py-2 bg-white border border-gray-300 rounded text-xs min-w-[140px]">
++                        <option value="all" <?= ($orderFilters['status'] ?? 'all') === 'all' ? 'selected' : ''; ?>>All statuses</option>
++                        <?php foreach (Orders::STATUSES as $statusOption): ?>
++                            <option value="<?= e($statusOption); ?>" <?= ($orderFilters['status'] ?? 'all') === $statusOption ? 'selected' : ''; ?>><?= e(Orders::statusLabel($statusOption)); ?></option>
++                        <?php endforeach; ?>
++                    </select>
++                </div>
++                <div>
++                    <label for="filter-payment" class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Payment</label>
++                    <select id="filter-payment" name="payment" class="px-3 py-2 bg-white border border-gray-300 rounded text-xs min-w-[140px]">
++                        <option value="all" <?= ($orderFilters['payment'] ?? 'all') === 'all' ? 'selected' : ''; ?>>All payments</option>
++                        <option value="awaiting" <?= ($orderFilters['payment'] ?? 'all') === 'awaiting' ? 'selected' : ''; ?>>Awaiting payment</option>
++                        <option value="recorded" <?= ($orderFilters['payment'] ?? 'all') === 'recorded' ? 'selected' : ''; ?>>Payment recorded</option>
++                    </select>
++                </div>
++                <button type="submit" class="px-4 py-2 bg-[#4c1719] text-white rounded text-[10px] font-bold uppercase hover:bg-[#361012]">Apply filters</button>
++                <?php if ($hasActiveOrderFilters): ?>
++                    <a href="admin.php?tab=orders" class="px-4 py-2 border border-gray-300 rounded text-[10px] font-bold uppercase text-gray-700 hover:bg-gray-50">Clear filters</a>
++                <?php endif; ?>
++            </form>
++
+             <div class="bg-white rounded border border-gray-200 shadow-sm overflow-hidden">
+                 <div class="md:hidden divide-y divide-gray-100">
+                     <?php if ($adminOrders === []): ?>
+-                        <p class="p-4 text-center text-sm text-gray-500">No orders yet.</p>
++                        <p class="p-4 text-center text-sm text-gray-500"><?= e($ordersEmptyMessage); ?></p>
+                     <?php else: ?>
+                         <?php foreach ($adminOrders as $ord):
+                             $orderStatus = Orders::normalizeStatus((string) $ord['status']);
+                             $createdTs = strtotime((string) $ord['created_at']);
+-                            $orderDate = $createdTs !== false ? date('Y-m-d', $createdTs) : '';
++                            $orderDate = $createdTs !== false ? date('M j, Y', $createdTs) : '';
+                             $paymentReceived = trim((string) ($ord['payment_received_at'] ?? '')) !== '';
+                             $receiptRef = trim((string) ($ord['receipt_ref'] ?? ''));
++                            $statusSelectId = 'status-select-' . (int) $ord['id'];
+                         ?>
+                             <article class="p-4 space-y-3">
+                                 <div class="flex justify-between items-start gap-3">
+                                     <div class="min-w-0">
+                                         <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Order ID</p>
+                                         <p class="font-bold text-sm text-gray-900"><?= e($ord['public_code']); ?></p>
+                                     </div>
+                                     <span class="flex-shrink-0 px-2 py-0.5 <?= e(Orders::statusBadgeClasses($orderStatus)); ?> font-bold text-[10px] uppercase rounded">
+                                         <?= e(Orders::statusLabel($orderStatus)); ?>
+                                     </span>
+                                 </div>
+                                 <div>
+                                     <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Customer</p>
+                                     <p class="font-bold text-sm text-gray-900"><?= e($ord['customer_name']); ?></p>
+                                     <p class="text-xs text-gray-500 break-all"><?= e($ord['user_email']); ?></p>
++                                    <p class="text-xs text-gray-600 mt-1"><?= e(Orders::fulfillmentLabel((string) $ord['fulfillment'])); ?> ┬╖ <?= e($ord['payment_method']); ?></p>
+                                 </div>
+                                 <div>
+                                     <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Items</p>
+                                     <div class="text-xs text-gray-700"><?= kd_items_html(Orders::itemsLabel($ord)); ?></div>
+                                 </div>
+                                 <div class="flex justify-between items-center gap-3">
+                                     <div>
+                                         <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Total</p>
+                                         <p class="font-serif font-bold text-[#4c1719]"><?= e(Catalog::formatPrice((int) $ord['total_php'])); ?></p>
+                                     </div>
+@@ -170,209 +209,366 @@ declare(strict_types=1);
+                                 <div class="pt-2 border-t border-gray-100">
+                                     <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Payment</p>
+                                     <?php if ($paymentReceived): ?>
+                                         <span class="text-emerald-700 font-semibold text-xs">Payment recorded</span>
+                                     <?php else: ?>
+                                         <div class="space-y-3">
+                                             <span class="text-amber-700 font-semibold text-xs">Awaiting payment</span>
+                                             <?php if ($receiptRef !== ''): ?>
+                                                 <p class="text-[10px] text-gray-500">Ref <?= e($receiptRef); ?></p>
+                                             <?php endif; ?>
+-                                            <form action="" method="POST">
+-                                                <?= csrf_field() ?>
+-                                                <input type="hidden" name="order_id" value="<?= (int) $ord['id']; ?>">
+-                                                <button type="submit" name="confirm_payment" value="1" class="w-full px-3 py-2 bg-emerald-700 text-white rounded text-[10px] font-bold uppercase">Record payment</button>
+-                                            </form>
++                                            <button
++                                                type="button"
++                                                data-payment-open
++                                                data-order-id="<?= (int) $ord['id']; ?>"
++                                                data-code="<?= e($ord['public_code']); ?>"
++                                                data-customer="<?= e($ord['customer_name']); ?>"
++                                                data-total="<?= e(Catalog::formatPrice((int) $ord['total_php'])); ?>"
++                                                data-method="<?= e($ord['payment_method']); ?>"
++                                                data-ref="<?= e($receiptRef); ?>"
++                                                aria-label="Record payment for <?= e($ord['public_code']); ?>"
++                                                class="w-full px-3 py-2 bg-emerald-700 text-white rounded text-[10px] font-bold uppercase hover:bg-emerald-800"
++                                            >Record payment</button>
+                                         </div>
+                                     <?php endif; ?>
+                                 </div>
+                                 <div class="pt-2 border-t border-gray-100">
+                                     <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Update Status</p>
+-                                    <form action="" method="POST" class="flex flex-col gap-2">
++                                    <form action="<?= e($ordersTabUrl ?? Orders::adminOrdersUrl($orderFilters ?? [])); ?>" method="POST" class="flex flex-col gap-2">
+                                         <?= csrf_field() ?>
+                                         <input type="hidden" name="order_id" value="<?= (int) $ord['id']; ?>">
+-                                        <select name="new_status" class="w-full px-2 py-2 bg-white border border-gray-300 rounded text-xs">
++                                        <input type="hidden" name="filter_status" value="<?= e($orderFilters['status'] ?? 'all'); ?>">
++                                        <input type="hidden" name="filter_payment" value="<?= e($orderFilters['payment'] ?? 'all'); ?>">
++                                        <label class="sr-only" for="<?= e($statusSelectId); ?>">Status for <?= e($ord['public_code']); ?></label>
++                                        <select id="<?= e($statusSelectId); ?>" name="new_status" class="w-full px-2 py-2 bg-white border border-gray-300 rounded text-xs">
+                                             <?php foreach (Orders::STATUSES as $statusOption): ?>
+                                                 <option value="<?= e($statusOption); ?>" <?= $orderStatus === $statusOption ? 'selected' : ''; ?>><?= e(Orders::statusLabel($statusOption)); ?></option>
+                                             <?php endforeach; ?>
+                                         </select>
+-                                        <button type="submit" name="update_order_status" class="w-full px-3 py-2 bg-[#4c1719] text-white rounded text-[10px] font-bold uppercase">Save</button>
++                                        <button type="submit" name="update_order_status" aria-label="Save status for <?= e($ord['public_code']); ?>" class="w-full px-3 py-2 bg-[#4c1719] text-white rounded text-[10px] font-bold uppercase">Save</button>
+                                     </form>
+                                 </div>
+                             </article>
+                         <?php endforeach; ?>
+                     <?php endif; ?>
+                 </div>
+ 
+                 <div class="admin-desktop-table overflow-x-auto">
+-                <table class="w-full min-w-[980px] text-left border-collapse text-xs">
++                <table class="w-full min-w-[1080px] text-left border-collapse text-xs">
++                    <caption class="sr-only">Admin orders list</caption>
+                     <thead>
+                         <tr class="bg-[#fbf9f5] border-b border-gray-200 text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+-                            <th class="p-4">Order ID</th>
+-                            <th class="p-4">Customer</th>
+-                            <th class="p-4">Email</th>
+-                            <th class="p-4">Items</th>
+-                            <th class="p-4">Total</th>
+-                            <th class="p-4">Status</th>
+-                            <th class="p-4">Payment</th>
+-                            <th class="p-4">Update Status</th>
+-                            <th class="p-4">Date</th>
++                            <th scope="col" class="p-4">Order ID</th>
++                            <th scope="col" class="p-4">Customer</th>
++                            <th scope="col" class="p-4">Email</th>
++                            <th scope="col" class="p-4">Fulfillment</th>
++                            <th scope="col" class="p-4">Items</th>
++                            <th scope="col" class="p-4">Total</th>
++                            <th scope="col" class="p-4">Status</th>
++                            <th scope="col" class="p-4">Payment</th>
++                            <th scope="col" class="p-4">Update Status</th>
++                            <th scope="col" class="p-4">Date</th>
+                         </tr>
+                     </thead>
+                     <tbody class="divide-y divide-gray-100 text-gray-700">
+                         <?php if ($adminOrders === []): ?>
+                             <tr>
+-                                <td colspan="9" class="p-4 text-center text-gray-500">No orders yet.</td>
++                                <td colspan="10" class="p-4 text-center text-gray-500"><?= e($ordersEmptyMessage); ?></td>
+                             </tr>
+                         <?php else: ?>
+                             <?php foreach ($adminOrders as $ord):
+                                 $orderStatus = Orders::normalizeStatus((string) $ord['status']);
+                                 $createdTs = strtotime((string) $ord['created_at']);
+-                                $orderDate = $createdTs !== false ? date('Y-m-d', $createdTs) : '';
++                                $orderDate = $createdTs !== false ? date('M j, Y', $createdTs) : '';
++                                $statusSelectId = 'status-select-dt-' . (int) $ord['id'];
+                             ?>
+                                 <tr class="hover:bg-gray-50 transition">
+                                     <td class="p-4 font-bold text-gray-900"><?= e($ord['public_code']); ?></td>
+                                     <td class="p-4 font-bold text-gray-900"><?= e($ord['customer_name']); ?></td>
+                                     <td class="p-4 text-gray-500"><?= e($ord['user_email']); ?></td>
++                                    <td class="p-4 text-gray-600">
++                                        <span class="block"><?= e(Orders::fulfillmentLabel((string) $ord['fulfillment'])); ?></span>
++                                        <span class="block text-[10px] text-gray-500 mt-0.5"><?= e($ord['payment_method']); ?></span>
++                                    </td>
+                                     <td class="p-4"><?= kd_items_html(Orders::itemsLabel($ord)); ?></td>
+                                     <td class="p-4 font-serif font-bold text-[#4c1719]"><?= e(Catalog::formatPrice((int) $ord['total_php'])); ?></td>
+                                     <td class="p-4">
+                                         <span class="px-2 py-0.5 <?= e(Orders::statusBadgeClasses($orderStatus)); ?> font-bold text-[10px] uppercase rounded">
+                                             <?= e(Orders::statusLabel($orderStatus)); ?>
+                                         </span>
+                                     </td>
+                                     <td class="p-4">
+                                         <?php
+                                         $paymentReceived = trim((string) ($ord['payment_received_at'] ?? '')) !== '';
+                                         $receiptRef = trim((string) ($ord['receipt_ref'] ?? ''));
+                                         ?>
+                                         <?php if ($paymentReceived): ?>
+                                             <span class="text-emerald-700 font-semibold">Payment recorded</span>
+                                         <?php else: ?>
+                                             <div class="space-y-2">
+                                                 <span class="text-amber-700 font-semibold">Awaiting payment</span>
+                                                 <?php if ($receiptRef !== ''): ?>
+                                                     <p class="text-[10px] text-gray-500">Ref <?= e($receiptRef); ?></p>
+                                                 <?php endif; ?>
+-                                                <form action="" method="POST">
+-                                                    <?= csrf_field() ?>
+-                                                    <input type="hidden" name="order_id" value="<?= (int) $ord['id']; ?>">
+-                                                    <button type="submit" name="confirm_payment" value="1" class="px-2 py-1 bg-emerald-700 text-white rounded text-[10px] font-bold uppercase">Record payment</button>
+-                                                </form>
++                                                <button
++                                                    type="button"
++                                                    data-payment-open
++                                                    data-order-id="<?= (int) $ord['id']; ?>"
++                                                    data-code="<?= e($ord['public_code']); ?>"
++                                                    data-customer="<?= e($ord['customer_name']); ?>"
++                                                    data-total="<?= e(Catalog::formatPrice((int) $ord['total_php'])); ?>"
++                                                    data-method="<?= e($ord['payment_method']); ?>"
++                                                    data-ref="<?= e($receiptRef); ?>"
++                                                    aria-label="Record payment for <?= e($ord['public_code']); ?>"
++                                                    class="px-2 py-1 bg-emerald-700 text-white rounded text-[10px] font-bold uppercase hover:bg-emerald-800"
++                                                >Record payment</button>
+                                             </div>
+                                         <?php endif; ?>
+                                     </td>
+                                     <td class="p-4">
+-                                        <form action="" method="POST" class="flex flex-wrap gap-2">
++                                        <form action="<?= e($ordersTabUrl ?? Orders::adminOrdersUrl($orderFilters ?? [])); ?>" method="POST" class="flex flex-wrap gap-2">
+                                             <?= csrf_field() ?>
+                                             <input type="hidden" name="order_id" value="<?= (int) $ord['id']; ?>">
+-                                            <select name="new_status" class="px-2 py-1 bg-white border border-gray-300 rounded text-xs">
++                                            <input type="hidden" name="filter_status" value="<?= e($orderFilters['status'] ?? 'all'); ?>">
++                                            <input type="hidden" name="filter_payment" value="<?= e($orderFilters['payment'] ?? 'all'); ?>">
++                                            <label class="sr-only" for="<?= e($statusSelectId); ?>">Status for <?= e($ord['public_code']); ?></label>
++                                            <select id="<?= e($statusSelectId); ?>" name="new_status" class="px-2 py-1 bg-white border border-gray-300 rounded text-xs">
+                                                 <?php foreach (Orders::STATUSES as $statusOption): ?>
+                                                     <option value="<?= e($statusOption); ?>" <?= $orderStatus === $statusOption ? 'selected' : ''; ?>><?= e(Orders::statusLabel($statusOption)); ?></option>
+                                                 <?php endforeach; ?>
+                                             </select>
+-                                            <button type="submit" name="update_order_status" class="px-2 py-1 bg-[#4c1719] text-white rounded text-[10px] font-bold uppercase">Save</button>
++                                            <button type="submit" name="update_order_status" aria-label="Save status for <?= e($ord['public_code']); ?>" class="px-2 py-1 bg-[#4c1719] text-white rounded text-[10px] font-bold uppercase">Save</button>
+                                         </form>
+                                     </td>
+                                     <td class="p-4 text-gray-500"><?= e($orderDate); ?></td>
+                                 </tr>
+                             <?php endforeach; ?>
+                         <?php endif; ?>
+                     </tbody>
+                 </table>
+                 </div>
+             </div>
+ 
+         <!-- TAB 3: INVENTORY -->
+         <?php elseif ($tab === 'inventory'): ?>
+-            <div class="mb-6">
+-                <p class="text-[10px] tracking-widest font-semibold text-gray-400 uppercase">INVENTORY</p>
+-                <h2 class="admin-page-title font-serif font-bold text-gray-900 mt-0.5">Inventory System</h2>
++            <?php
++            $inventoryCategories = ['fresh', 'dried', 'bloombox', 'glassdome', 'others'];
++            $inventoryBadges = ['', 'Bestseller', 'Limited', 'Luxury', 'New'];
++            $formProduct = $editProduct ?? null;
++            ?>
++            <div class="mb-6 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
++                <div>
++                    <p class="text-[10px] tracking-widest font-semibold text-gray-400 uppercase">INVENTORY</p>
++                    <h2 class="admin-page-title font-serif font-bold text-gray-900 mt-0.5">Inventory System</h2>
++                </div>
++                <?php if ($inventoryFormMode !== 'new'): ?>
++                    <a href="admin.php?tab=inventory&amp;new=1" class="inline-flex items-center justify-center px-4 py-2 bg-[#4c1719] text-white rounded text-[10px] font-bold uppercase tracking-wider hover:opacity-90">Add product</a>
++                <?php endif; ?>
+             </div>
+ 
++            <?php if ($inventoryFormMode === 'new' || $inventoryFormMode === 'edit'): ?>
++                <section class="bg-white rounded border border-gray-200 shadow-sm p-4 sm:p-6 mb-6" aria-labelledby="inventory-form-title">
++                    <div class="flex items-center justify-between gap-3 mb-4">
++                        <h3 id="inventory-form-title" class="font-serif font-bold text-gray-900"><?= $inventoryFormMode === 'edit' ? 'Edit product' : 'Add product'; ?></h3>
++                        <a href="admin.php?tab=inventory" class="text-xs text-gray-500 hover:text-[#4c1719] font-semibold">Cancel</a>
++                    </div>
++                    <form action="admin.php?tab=inventory" method="POST" enctype="multipart/form-data" class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
++                        <?= csrf_field() ?>
++                        <input type="hidden" name="product_id" value="<?= $inventoryFormMode === 'edit' ? (int) $formProduct['id'] : 0; ?>">
++                        <div>
++                            <label for="product-name" class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Name</label>
++                            <input type="text" id="product-name" name="name" required maxlength="160" value="<?= e((string) ($formProduct['name'] ?? '')); ?>" class="w-full px-3 py-2 bg-white border border-gray-300 rounded">
++                        </div>
++                        <div>
++                            <label for="product-category" class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Category</label>
++                            <select id="product-category" name="category" required class="w-full px-3 py-2 bg-white border border-gray-300 rounded">
++                                <?php foreach ($inventoryCategories as $cat): ?>
++                                    <option value="<?= e($cat); ?>"<?= ($formProduct['category'] ?? 'fresh') === $cat ? ' selected' : ''; ?>><?= e(Catalog::categoryLabel($cat)); ?></option>
++                                <?php endforeach; ?>
++                            </select>
++                        </div>
++                        <div class="md:col-span-2">
++                            <label for="product-description" class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Description</label>
++                            <textarea id="product-description" name="description" rows="3" maxlength="2000" class="w-full px-3 py-2 bg-white border border-gray-300 rounded"><?= e((string) ($formProduct['description'] ?? '')); ?></textarea>
++                        </div>
++                        <div>
++                            <label for="product-price" class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Price (Γé▒)</label>
++                            <input type="number" id="product-price" name="price_php" required min="1" max="999999" value="<?= (int) ($formProduct['price_php'] ?? 0); ?>" class="w-full px-3 py-2 bg-white border border-gray-300 rounded">
++                        </div>
++                        <div>
++                            <label for="product-stock" class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Stock</label>
++                            <input type="number" id="product-stock" name="stock" required min="0" max="99999" value="<?= (int) ($formProduct['stock'] ?? 0); ?>" class="w-full px-3 py-2 bg-white border border-gray-300 rounded">
++                        </div>
++                        <div>
++                            <label for="product-badge" class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Badge</label>
++                            <select id="product-badge" name="badge" class="w-full px-3 py-2 bg-white border border-gray-300 rounded">
++                                <?php
++                                $currentBadge = (string) ($formProduct['badge'] ?? '');
++                                foreach ($inventoryBadges as $badgeOpt):
++                                    $selected = ($badgeOpt === '' && $currentBadge === '') || ($badgeOpt !== '' && $currentBadge === $badgeOpt);
++                                ?>
++                                    <option value="<?= e($badgeOpt); ?>"<?= $selected ? ' selected' : ''; ?>><?= $badgeOpt === '' ? 'None' : e($badgeOpt); ?></option>
++                                <?php endforeach; ?>
++                            </select>
++                        </div>
++                        <div class="flex items-end">
++                            <label class="inline-flex items-center gap-2 cursor-pointer">
++                                <input type="checkbox" name="is_active" value="1" class="rounded border-gray-300"<?= (int) ($formProduct['is_active'] ?? 1) === 1 ? ' checked' : ''; ?>>
++                                <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Active in shop</span>
++                            </label>
++                        </div>
++                        <div class="md:col-span-2">
++                            <label for="product-image" class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">
++                                Product image<?= $inventoryFormMode === 'new' ? ' (required)' : ' (optional)'; ?>
++                            </label>
++                            <?php if ($inventoryFormMode === 'edit' && !empty($formProduct['image_path'])): ?>
++                                <div class="flex items-center gap-3 mb-2">
++                                    <img src="<?= e(kd_image_url($formProduct['image_path'])); ?>" alt="" class="w-14 h-14 object-cover rounded border">
++                                    <p class="text-gray-500">Current: <?= e($formProduct['image_path']); ?></p>
++                                </div>
++                            <?php endif; ?>
++                            <input type="file" id="product-image" name="product_image" accept="image/jpeg,image/png,image/webp" class="w-full text-xs">
++                            <?php if ($inventoryFormMode === 'new'): ?>
++                                <p class="text-[10px] text-gray-400 mt-1">Or use an existing catalog path:</p>
++                                <input type="text" name="image_path" placeholder="images/example.jpg" class="mt-1 w-full px-3 py-2 bg-white border border-gray-300 rounded">
++                            <?php endif; ?>
++                        </div>
++                        <div class="md:col-span-2 flex justify-end gap-2 pt-2">
++                            <a href="admin.php?tab=inventory" class="px-4 py-2 border border-gray-300 rounded text-[10px] font-bold uppercase text-gray-700 hover:bg-gray-50">Cancel</a>
++                            <button type="submit" name="save_product" value="1" class="px-4 py-2 bg-[#4c1719] text-white rounded text-[10px] font-bold uppercase hover:opacity-90"><?= $inventoryFormMode === 'edit' ? 'Save changes' : 'Create product'; ?></button>
++                        </div>
++                    </form>
++                </section>
++            <?php endif; ?>
++
+             <div class="bg-white rounded border border-gray-200 shadow-sm overflow-hidden">
+                 <div class="md:hidden divide-y divide-gray-100">
+                     <?php foreach ($inventory as $p):
+                         $stockUi = Catalog::stockDisplay((int) $p['stock']);
++                        $isActive = (int) $p['is_active'] === 1;
++                        $hasOrders = Catalog::hasOrderItems((int) $p['id']);
+                     ?>
+                         <article class="p-4 space-y-3">
+                             <div class="flex items-center gap-3 min-w-0">
+                                 <img src="<?= e(kd_image_url($p['image_path'])); ?>" alt="<?= e($p['name']); ?>" class="w-12 h-12 flex-shrink-0 object-cover rounded border">
+-                                <div class="min-w-0">
++                                <div class="min-w-0 flex-1">
+                                     <p class="font-serif font-bold text-sm text-gray-900"><?= e($p['name']); ?></p>
+                                     <p class="text-[10px] text-gray-400 uppercase font-semibold"><?= e(Catalog::categoryLabel($p['category'])); ?></p>
++                                    <span class="inline-block mt-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase <?= $isActive ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-200 text-gray-600'; ?>"><?= $isActive ? 'Active' : 'Hidden'; ?></span>
+                                 </div>
+                             </div>
+                             <div class="grid grid-cols-2 gap-3">
+                                 <div>
+                                     <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Price</p>
+                                     <p class="font-serif font-bold text-[#4c1719] text-sm"><?= e(Catalog::formatPrice((int) $p['price_php'])); ?></p>
+                                 </div>
+                                 <div>
+                                     <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Current Stock</p>
+                                     <p class="font-bold text-sm <?= (int) $p['stock'] <= 3 ? 'text-amber-700' : 'text-gray-900'; ?>"><?= (int) $p['stock']; ?></p>
+                                 </div>
+                             </div>
+                             <div>
+                                 <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Status</p>
+                                 <span class="<?= e($stockUi['class'] === 'out-of-stock' ? 'text-gray-500' : ($stockUi['class'] === 'low-stock' ? 'text-amber-700' : 'text-emerald-700')); ?> font-semibold text-xs"><?= e($stockUi['text']); ?></span>
+                             </div>
++                            <div class="flex flex-wrap gap-2">
++                                <a href="admin.php?tab=inventory&amp;edit=<?= (int) $p['id']; ?>" class="px-3 py-1 border border-gray-300 rounded text-[10px] font-bold uppercase text-gray-700">Edit</a>
++                                <?php if ($isActive): ?>
++                                    <button type="button" class="px-3 py-1 border border-gray-300 rounded text-[10px] font-bold uppercase text-gray-700" data-product-open data-action="hide" data-product-id="<?= (int) $p['id']; ?>" data-product-name="<?= e($p['name']); ?>">Hide</button>
++                                <?php else: ?>
++                                    <button type="button" class="px-3 py-1 border border-emerald-700 text-emerald-800 rounded text-[10px] font-bold uppercase" data-product-open data-action="show" data-product-id="<?= (int) $p['id']; ?>" data-product-name="<?= e($p['name']); ?>">Show</button>
++                                <?php endif; ?>
++                                <?php if (!$hasOrders): ?>
++                                    <button type="button" class="px-3 py-1 border border-red-300 text-red-800 rounded text-[10px] font-bold uppercase" data-product-open data-action="delete" data-product-id="<?= (int) $p['id']; ?>" data-product-name="<?= e($p['name']); ?>">Delete</button>
++                                <?php else: ?>
++                                    <span class="px-3 py-1 text-[10px] text-gray-400" title="Hide instead">Delete unavailable</span>
++                                <?php endif; ?>
++                            </div>
+                             <div class="pt-2 border-t border-gray-100">
+                                 <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Restock Qty</p>
+                                 <form action="" method="POST" enctype="multipart/form-data" class="flex flex-col gap-2">
+                                     <?= csrf_field() ?>
+                                     <input type="hidden" name="product_id" value="<?= (int) $p['id']; ?>">
+-                                    <input type="number" name="restock_qty" min="0" max="99999" value="<?= (int) $p['stock']; ?>" class="w-full px-2 py-2 bg-white border border-gray-300 rounded text-xs">
+-                                    <input type="file" name="product_image" accept="image/jpeg,image/png,image/webp" class="w-full text-xs">
++                                    <label class="sr-only" for="restock-qty-m-<?= (int) $p['id']; ?>">Restock quantity</label>
++                                    <input type="number" id="restock-qty-m-<?= (int) $p['id']; ?>" name="restock_qty" min="0" max="99999" value="<?= (int) $p['stock']; ?>" class="w-full px-2 py-2 bg-white border border-gray-300 rounded text-xs">
++                                    <label class="sr-only" for="restock-img-m-<?= (int) $p['id']; ?>">Replace image</label>
++                                    <input type="file" id="restock-img-m-<?= (int) $p['id']; ?>" name="product_image" accept="image/jpeg,image/png,image/webp" class="w-full text-xs">
+                                     <button type="submit" name="restock_item" class="w-full px-3 py-2 bg-[#4c1719] text-white rounded text-[10px] font-bold uppercase">Save</button>
+                                 </form>
+                             </div>
+                         </article>
+                     <?php endforeach; ?>
+                 </div>
+ 
+                 <div class="admin-desktop-table overflow-x-auto">
+-                <table class="w-full min-w-[720px] text-left border-collapse text-xs">
++                <table class="w-full min-w-[900px] text-left border-collapse text-xs">
++                    <caption class="sr-only">Product inventory</caption>
+                     <thead>
+                         <tr class="bg-[#fbf9f5] border-b border-gray-200 text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+-                            <th class="p-4">Product</th>
+-                            <th class="p-4">Category</th>
+-                            <th class="p-4">Price</th>
+-                            <th class="p-4">Current Stock</th>
+-                            <th class="p-4">Status</th>
+-                            <th class="p-4">Restock Qty</th>
++                            <th scope="col" class="p-4">Product</th>
++                            <th scope="col" class="p-4">Category</th>
++                            <th scope="col" class="p-4">Price</th>
++                            <th scope="col" class="p-4">Current Stock</th>
++                            <th scope="col" class="p-4">Stock status</th>
++                            <th scope="col" class="p-4">Visibility</th>
++                            <th scope="col" class="p-4">Restock Qty</th>
++                            <th scope="col" class="p-4">Actions</th>
+                         </tr>
+                     </thead>
+                     <tbody class="divide-y divide-gray-100 text-gray-700">
+                         <?php foreach ($inventory as $p):
+                             $stockUi = Catalog::stockDisplay((int) $p['stock']);
++                            $isActive = (int) $p['is_active'] === 1;
++                            $hasOrders = Catalog::hasOrderItems((int) $p['id']);
+                         ?>
+                             <tr class="hover:bg-gray-50 transition">
+-                                <td class="p-4 flex items-center gap-3">
+-                                    <img src="<?= e(kd_image_url($p['image_path'])); ?>" alt="<?= e($p['name']); ?>" class="w-10 h-10 object-cover rounded border">
+-                                    <span class="font-serif font-bold text-gray-900"><?= e($p['name']); ?></span>
++                                <td class="p-4">
++                                    <div class="flex items-center gap-3">
++                                        <img src="<?= e(kd_image_url($p['image_path'])); ?>" alt="<?= e($p['name']); ?>" class="w-10 h-10 object-cover rounded border">
++                                        <span class="font-serif font-bold text-gray-900"><?= e($p['name']); ?></span>
++                                    </div>
+                                 </td>
+                                 <td class="p-4 text-gray-500 font-semibold"><?= e(Catalog::categoryLabel($p['category'])); ?></td>
+                                 <td class="p-4 font-serif font-bold text-[#4c1719]"><?= e(Catalog::formatPrice((int) $p['price_php'])); ?></td>
+                                 <td class="p-4 font-bold <?= (int) $p['stock'] <= 3 ? 'text-amber-700' : 'text-gray-900'; ?>"><?= (int) $p['stock']; ?></td>
+                                 <td class="p-4">
+                                     <span class="<?= e($stockUi['class'] === 'out-of-stock' ? 'text-gray-500' : ($stockUi['class'] === 'low-stock' ? 'text-amber-700' : 'text-emerald-700')); ?> font-semibold"><?= e($stockUi['text']); ?></span>
+                                 </td>
++                                <td class="p-4">
++                                    <span class="inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase <?= $isActive ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-200 text-gray-600'; ?>"><?= $isActive ? 'Active' : 'Hidden'; ?></span>
++                                </td>
+                                 <td class="p-4">
+                                     <form action="" method="POST" enctype="multipart/form-data" class="flex flex-wrap items-center gap-2">
+                                         <?= csrf_field() ?>
+                                         <input type="hidden" name="product_id" value="<?= (int) $p['id']; ?>">
+-                                        <input type="number" name="restock_qty" min="0" max="99999" value="<?= (int) $p['stock']; ?>" class="w-16 px-2 py-1 bg-white border border-gray-300 rounded text-xs">
+-                                        <input type="file" name="product_image" accept="image/jpeg,image/png,image/webp" class="max-w-[160px] text-[10px]">
++                                        <label class="sr-only" for="restock-qty-<?= (int) $p['id']; ?>">Restock quantity</label>
++                                        <input type="number" id="restock-qty-<?= (int) $p['id']; ?>" name="restock_qty" min="0" max="99999" value="<?= (int) $p['stock']; ?>" class="w-16 px-2 py-1 bg-white border border-gray-300 rounded text-xs">
++                                        <label class="sr-only" for="restock-img-<?= (int) $p['id']; ?>">Replace image</label>
++                                        <input type="file" id="restock-img-<?= (int) $p['id']; ?>" name="product_image" accept="image/jpeg,image/png,image/webp" class="max-w-[120px] text-[10px]">
+                                         <button type="submit" name="restock_item" class="px-3 py-1 bg-[#4c1719] text-white rounded text-[10px] font-bold uppercase">Save</button>
+                                     </form>
+                                 </td>
++                                <td class="p-4">
++                                    <div class="flex flex-wrap items-center gap-1">
++                                        <a href="admin.php?tab=inventory&amp;edit=<?= (int) $p['id']; ?>" class="px-2 py-1 border border-gray-300 rounded text-[10px] font-bold uppercase text-gray-700 hover:bg-gray-50">Edit</a>
++                                        <?php if ($isActive): ?>
++                                            <button type="button" class="px-2 py-1 border border-gray-300 rounded text-[10px] font-bold uppercase text-gray-700 hover:bg-gray-50" data-product-open data-action="hide" data-product-id="<?= (int) $p['id']; ?>" data-product-name="<?= e($p['name']); ?>">Hide</button>
++                                        <?php else: ?>
++                                            <button type="button" class="px-2 py-1 border border-emerald-700 text-emerald-800 rounded text-[10px] font-bold uppercase hover:bg-emerald-50" data-product-open data-action="show" data-product-id="<?= (int) $p['id']; ?>" data-product-name="<?= e($p['name']); ?>">Show</button>
++                                        <?php endif; ?>
++                                        <?php if (!$hasOrders): ?>
++                                            <button type="button" class="px-2 py-1 border border-red-300 text-red-800 rounded text-[10px] font-bold uppercase hover:bg-red-50" data-product-open data-action="delete" data-product-id="<?= (int) $p['id']; ?>" data-product-name="<?= e($p['name']); ?>">Delete</button>
++                                        <?php else: ?>
++                                            <span class="px-2 py-1 text-[10px] text-gray-400 cursor-help" title="Hide instead">Delete</span>
++                                        <?php endif; ?>
++                                    </div>
++                                </td>
+                             </tr>
+                         <?php endforeach; ?>
+                     </tbody>
+                 </table>
+                 </div>
+             </div>
+ 
+         <!-- TAB 4: BUYERS HISTORY -->
+         <?php elseif ($tab === 'buyers'): ?>
+             <div class="mb-6">
+@@ -464,13 +660,21 @@ declare(strict_types=1);
+                                 </tr>
+                             <?php endforeach; ?>
+                         <?php endif; ?>
+                     </tbody>
+                 </table>
+                 </div>
+             </div>
+         <?php endif; ?>
+ 
+     </main>
++    <?php View::render('partials/admin-payment-dialog', [
++        'ordersTabUrl' => $ordersTabUrl ?? Orders::adminOrdersUrl(Orders::normalizeAdminFilters([])),
++        'orderFilters' => $orderFilters ?? Orders::normalizeAdminFilters([]),
++    ]); ?>
++    <?php if ($tab === 'inventory'): ?>
++        <?php View::render('partials/admin-product-dialog'); ?>
++    <?php endif; ?>
+     <script src="<?= e(kd_asset('assets/js/nav.js')); ?>" defer></script>
++    <script src="<?= e(kd_asset('assets/js/admin.js')); ?>" defer></script>
+ </body>
+ </html>
+
+## New file: tests/CatalogCrudTest.php
+
+diff --git a/tests/CatalogCrudTest.php b/tests/CatalogCrudTest.php
+new file mode 100644
+index 0000000..c25616e
+--- /dev/null
++++ b/tests/CatalogCrudTest.php
+@@ -0,0 +1,208 @@
++<?php
++declare(strict_types=1);
++
++use PHPUnit\Framework\TestCase;
++
++final class CatalogCrudTest extends TestCase
++{
++    private PDO $pdo;
++
++    /** @var list<int> */
++    private array $productIds = [];
++
++    /** @var list<int> */
++    private array $orderIds = [];
++
++    private int $userId = 0;
++
++    protected function setUp(): void
++    {
++        require_once dirname(__DIR__) . '/config/bootstrap.php';
++        require_once dirname(__DIR__) . '/src/Auth.php';
++        require_once dirname(__DIR__) . '/src/Catalog.php';
++        require_once dirname(__DIR__) . '/src/Orders.php';
++
++        try {
++            $this->pdo = db();
++            $this->pdo->query('SELECT 1');
++        } catch (Throwable $e) {
++            $this->markTestSkipped('Database unreachable.');
++        }
++    }
++
++    protected function tearDown(): void
++    {
++        if (!isset($this->pdo)) {
++            return;
++        }
++
++        try {
++            foreach ($this->orderIds as $orderId) {
++                $stmt = $this->pdo->prepare('DELETE FROM order_items WHERE order_id = :id');
++                $stmt->execute([':id' => $orderId]);
++                $stmt = $this->pdo->prepare('DELETE FROM orders WHERE id = :id');
++                $stmt->execute([':id' => $orderId]);
++            }
++            foreach ($this->productIds as $productId) {
++                $stmt = $this->pdo->prepare('DELETE FROM products WHERE id = :id');
++                $stmt->execute([':id' => $productId]);
++            }
++            if ($this->userId > 0) {
++                $stmt = $this->pdo->prepare('DELETE FROM users WHERE id = :id');
++                $stmt->execute([':id' => $this->userId]);
++            }
++        } catch (Throwable $e) {
++            // Cleanup best-effort.
++        }
++    }
++
++    public function testNormalizeSlugLowercasesAndHyphenates(): void
++    {
++        $this->assertSame('rose-bouquet', Catalog::normalizeSlug('Rose Bouquet'));
++    }
++
++    public function testUniqueSlugAppendsSuffixOnCollision(): void
++    {
++        $base = 'collision-test-' . bin2hex(random_bytes(4));
++        $slug1 = Catalog::normalizeSlug($base);
++        $id1 = $this->insertRawProduct($base, $slug1);
++        $this->productIds[] = $id1;
++
++        $unique = Catalog::uniqueSlug($slug1);
++        $this->assertSame($slug1 . '-2', $unique);
++    }
++
++    public function testCreateThenAllActiveContainsProduct(): void
++    {
++        $name = 'CRUD Active ' . bin2hex(random_bytes(4));
++        $id = Catalog::create($this->validInput(['name' => $name]));
++        $this->productIds[] = $id;
++
++        $activeIds = array_map(fn(array $p): int => (int) $p['id'], Catalog::allActive());
++        $this->assertContains($id, $activeIds);
++
++        $product = Catalog::findById($id);
++        $this->assertNotNull($product);
++        $this->assertSame($name, $product['name']);
++        $this->assertSame(1, $product['is_active']);
++    }
++
++    public function testCreateWithoutImagePathThrows(): void
++    {
++        $input = $this->validInput();
++        unset($input['image_path']);
++
++        $this->expectException(InvalidArgumentException::class);
++        Catalog::create($input);
++    }
++
++    public function testSetActiveFalseRemovesFromAllActiveAndTrueRestores(): void
++    {
++        $id = Catalog::create($this->validInput());
++        $this->productIds[] = $id;
++
++        Catalog::setActive($id, false);
++        $activeIds = array_map(fn(array $p): int => (int) $p['id'], Catalog::allActive());
++        $this->assertNotContains($id, $activeIds);
++
++        Catalog::setActive($id, true);
++        $activeIds = array_map(fn(array $p): int => (int) $p['id'], Catalog::allActive());
++        $this->assertContains($id, $activeIds);
++    }
++
++    public function testDeleteIfUnusedThrowsWhenOrderItemsExist(): void
++    {
++        $productId = Catalog::create($this->validInput());
++        $this->productIds[] = $productId;
++        $orderId = $this->createOrderForProduct($productId);
++        $this->orderIds[] = $orderId;
++
++        $this->expectException(RuntimeException::class);
++        $this->expectExceptionMessage('This product is on past orders. Hide it instead.');
++
++        Catalog::deleteIfUnused($productId);
++    }
++
++    public function testHardDeleteSucceedsWhenUnused(): void
++    {
++        $id = Catalog::create($this->validInput());
++        $this->productIds[] = $id;
++
++        Catalog::deleteIfUnused($id);
++        $this->productIds = array_values(array_filter(
++            $this->productIds,
++            fn(int $pid): bool => $pid !== $id
++        ));
++
++        $this->assertNull(Catalog::findById($id));
++        $allIds = array_map(fn(array $p): int => (int) $p['id'], Catalog::all());
++        $this->assertNotContains($id, $allIds);
++    }
++
++    public function testHasOrderItemsReturnsTrueWhenOrdered(): void
++    {
++        $productId = Catalog::create($this->validInput());
++        $this->productIds[] = $productId;
++        $orderId = $this->createOrderForProduct($productId);
++        $this->orderIds[] = $orderId;
++
++        $this->assertTrue(Catalog::hasOrderItems($productId));
++    }
++
++    /** @param array<string,mixed> $overrides */
++    private function validInput(array $overrides = []): array
++    {
++        return array_merge([
++            'name'        => 'CRUD Test ' . bin2hex(random_bytes(4)),
++            'category'    => 'fresh',
++            'description' => 'Test description',
++            'price_php'   => 1500,
++            'stock'       => 10,
++            'badge'       => 'New',
++            'is_active'   => 1,
++            'image_path'  => 'images/logo.png',
++        ], $overrides);
++    }
++
++    private function insertRawProduct(string $name, string $slug): int
++    {
++        $stmt = $this->pdo->prepare(
++            'INSERT INTO products (name, slug, category, description, price_php, image_path, stock, is_active)
++             VALUES (:name, :slug, :category, :description, :price_php, :image_path, :stock, 1)'
++        );
++        $stmt->execute([
++            ':name'        => $name,
++            ':slug'        => $slug,
++            ':category'    => 'fresh',
++            ':description' => null,
++            ':price_php'   => 1000,
++            ':image_path'  => 'images/logo.png',
++            ':stock'       => 5,
++        ]);
++
++        return (int) $this->pdo->lastInsertId();
++    }
++
++    private function createOrderForProduct(int $productId): int
++    {
++        $this->userId = $this->userId > 0 ? $this->userId : Auth::createCustomer(
++            'CRUD Test',
++            'crud-' . bin2hex(random_bytes(4)) . '@kdesigns.test',
++            'CrudTestPass-2026'
++        );
++
++        $order = Orders::create([
++            'user_id'          => $this->userId,
++            'product_id'       => $productId,
++            'qty'              => 1,
++            'fulfillment'      => 'pickup',
++            'payment_method'   => 'Pay at Shop',
++            'receipt_ref'      => 'KDCRUDREF1',
++            'customer_name'    => 'CRUD Tester',
++            'customer_contact' => '09170000001',
++            'date_needed'      => (new DateTimeImmutable('today'))->format('Y-m-d'),
++        ]);
++
++        return (int) $order['id'];
++    }
++}
+
+## New file: views/partials/admin-product-dialog.php
+
+diff --git a/views/partials/admin-product-dialog.php b/views/partials/admin-product-dialog.php
+new file mode 100644
+index 0000000..53ba75c
+--- /dev/null
++++ b/views/partials/admin-product-dialog.php
+@@ -0,0 +1,16 @@
++<?php
++declare(strict_types=1);
++?>
++<dialog id="product-confirm" class="payment-confirm-dialog rounded border border-gray-200 bg-white shadow-xl max-w-md w-[calc(100%-2rem)] p-0 backdrop:bg-black/50" aria-labelledby="product-confirm-title">
++    <form method="POST" action="admin.php?tab=inventory" class="p-6 space-y-4">
++        <?= csrf_field(); ?>
++        <input type="hidden" name="product_id" id="product-confirm-id" value="">
++        <input type="hidden" name="is_active" id="product-confirm-active" value="">
++        <h2 id="product-confirm-title" class="font-serif font-bold text-lg text-gray-900">Confirm action</h2>
++        <p id="product-confirm-message" class="text-sm text-gray-700"></p>
++        <div class="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-2">
++            <button type="button" value="cancel" data-product-cancel class="px-4 py-2 border border-gray-300 rounded text-[10px] font-bold uppercase text-gray-700 hover:bg-gray-50">Cancel</button>
++            <button type="submit" id="product-confirm-submit" name="set_product_active" value="1" class="px-4 py-2 bg-[#4c1719] text-white rounded text-[10px] font-bold uppercase hover:opacity-90">Confirm</button>
++        </div>
++    </form>
++</dialog>
+
+## File: public/assets/js/admin.js (Task 2+4)
+
+diff --git a/public/assets/js/admin.js b/public/assets/js/admin.js
+new file mode 100644
+index 0000000..5bb7025
+--- /dev/null
++++ b/public/assets/js/admin.js
+@@ -0,0 +1,195 @@
++document.addEventListener('DOMContentLoaded', () => {
+
++    const paymentDialog = document.getElementById('payment-confirm');
+
++    if (paymentDialog) {
+
++        const orderIdInput = document.getElementById('payment-confirm-order-id');
+
++        const codeEl = document.getElementById('payment-confirm-code');
+
++        const metaEl = document.getElementById('payment-confirm-meta');
+
++        const cancelBtn = paymentDialog.querySelector('[data-payment-cancel]');
+
++        let triggerButton = null;
+
++
+
++        const restoreFocus = () => {
+
++            if (triggerButton) {
+
++                triggerButton.focus();
+
++                triggerButton = null;
+
++            }
+
++        };
+
++
+
++        const closeDialog = () => {
+
++            if (!paymentDialog.open) {
+
++                return;
+
++            }
+
++            paymentDialog.close();
+
++        };
+
++
+
++        const buildMetaLine = (button) => {
+
++            const parts = [];
+
++            const customer = button.dataset.customer || '';
+
++            const total = button.dataset.total || '';
+
++            const method = button.dataset.method || '';
+
++            const ref = button.dataset.ref || '';
+
++
+
++            if (customer !== '') {
+
++                parts.push(`Customer: ${customer}`);
+
++            }
+
++            if (total !== '') {
+
++                parts.push(total);
+
++            }
+
++            if (method !== '') {
+
++                parts.push(method);
+
++            }
+
++            if (ref !== '') {
+
++                parts.push(`Ref ${ref}`);
+
++            }
+
++
+
++            return parts.join(' ┬╖ ');
+
++        };
+
++
+
++        document.querySelectorAll('[data-payment-open]').forEach((button) => {
+
++            button.addEventListener('click', () => {
+
++                triggerButton = button;
+
++
+
++                if (orderIdInput) {
+
++                    orderIdInput.value = button.dataset.orderId || '';
+
++                }
+
++                if (codeEl) {
+
++                    codeEl.textContent = button.dataset.code || '';
+
++                }
+
++                if (metaEl) {
+
++                    metaEl.textContent = buildMetaLine(button);
+
++                }
+
++
+
++                paymentDialog.showModal();
+
++            });
+
++        });
+
++
+
++        cancelBtn?.addEventListener('click', closeDialog);
+
++
+
++        paymentDialog.addEventListener('close', restoreFocus);
+
++
+
++        paymentDialog.addEventListener('click', (event) => {
+
++            const rect = paymentDialog.getBoundingClientRect();
+
++            const clickedInDialog =
+
++                rect.top <= event.clientY &&
+
++                event.clientY <= rect.top + rect.height &&
+
++                rect.left <= event.clientX &&
+
++                event.clientX <= rect.left + rect.width;
+
++
+
++            if (!clickedInDialog) {
+
++                closeDialog();
+
++            }
+
++        });
+
++    }
+
++
+
++    const productDialog = document.getElementById('product-confirm');
+
++    if (!productDialog) {
+
++        return;
+
++    }
+
++
+
++    const productIdInput = document.getElementById('product-confirm-id');
+
++    const productActiveInput = document.getElementById('product-confirm-active');
+
++    const productMessageEl = document.getElementById('product-confirm-message');
+
++    const productTitleEl = document.getElementById('product-confirm-title');
+
++    const productSubmitBtn = document.getElementById('product-confirm-submit');
+
++    const productCancelBtn = productDialog.querySelector('[data-product-cancel]');
+
++    let productTriggerButton = null;
+
++
+
++    const restoreProductFocus = () => {
+
++        if (productTriggerButton) {
+
++            productTriggerButton.focus();
+
++            productTriggerButton = null;
+
++        }
+
++    };
+
++
+
++    const closeProductDialog = () => {
+
++        if (!productDialog.open) {
+
++            return;
+
++        }
+
++        productDialog.close();
+
++    };
+
++
+
++    document.querySelectorAll('[data-product-open]').forEach((button) => {
+
++        button.addEventListener('click', () => {
+
++            productTriggerButton = button;
+
++
+
++            const action = button.dataset.action || '';
+
++            const productId = button.dataset.productId || '';
+
++            const productName = button.dataset.productName || 'this product';
+
++
+
++            if (productIdInput) {
+
++                productIdInput.value = productId;
+
++            }
+
++
+
++            if (action === 'hide') {
+
++                if (productTitleEl) {
+
++                    productTitleEl.textContent = 'Hide product';
+
++                }
+
++                if (productMessageEl) {
+
++                    productMessageEl.textContent = `Hide ${productName} from the shop?`;
+
++                }
+
++                if (productActiveInput) {
+
++                    productActiveInput.value = '0';
+
++                    productActiveInput.disabled = false;
+
++                }
+
++                if (productSubmitBtn) {
+
++                    productSubmitBtn.name = 'set_product_active';
+
++                    productSubmitBtn.value = '1';
+
++                    productSubmitBtn.textContent = 'Hide product';
+
++                    productSubmitBtn.className = 'px-4 py-2 bg-[#4c1719] text-white rounded text-[10px] font-bold uppercase hover:opacity-90';
+
++                }
+
++            } else if (action === 'show') {
+
++                if (productTitleEl) {
+
++                    productTitleEl.textContent = 'Show product';
+
++                }
+
++                if (productMessageEl) {
+
++                    productMessageEl.textContent = `Show ${productName} in the shop again?`;
+
++                }
+
++                if (productActiveInput) {
+
++                    productActiveInput.value = '1';
+
++                    productActiveInput.disabled = false;
+
++                }
+
++                if (productSubmitBtn) {
+
++                    productSubmitBtn.name = 'set_product_active';
+
++                    productSubmitBtn.value = '1';
+
++                    productSubmitBtn.textContent = 'Show product';
+
++                    productSubmitBtn.className = 'px-4 py-2 bg-emerald-700 text-white rounded text-[10px] font-bold uppercase hover:bg-emerald-800';
+
++                }
+
++            } else if (action === 'delete') {
+
++                if (productTitleEl) {
+
++                    productTitleEl.textContent = 'Delete product';
+
++                }
+
++                if (productMessageEl) {
+
++                    productMessageEl.textContent = `Permanently delete ${productName}? This cannot be undone.`;
+
++                }
+
++                if (productActiveInput) {
+
++                    productActiveInput.value = '';
+
++                    productActiveInput.disabled = true;
+
++                }
+
++                if (productSubmitBtn) {
+
++                    productSubmitBtn.name = 'delete_product';
+
++                    productSubmitBtn.value = '1';
+
++                    productSubmitBtn.textContent = 'Delete permanently';
+
++                    productSubmitBtn.className = 'px-4 py-2 bg-red-700 text-white rounded text-[10px] font-bold uppercase hover:bg-red-800';
+
++                }
+
++            }
+
++
+
++            productDialog.showModal();
+
++        });
+
++    });
+
++
+
++    productCancelBtn?.addEventListener('click', closeProductDialog);
+
++
+
++    productDialog.addEventListener('close', restoreProductFocus);
+
++
+
++    productDialog.addEventListener('click', (event) => {
+
++        const rect = productDialog.getBoundingClientRect();
+
++        const clickedInDialog =
+
++            rect.top <= event.clientY &&
+
++            event.clientY <= rect.top + rect.height &&
+
++            rect.left <= event.clientX &&
+
++            event.clientX <= rect.left + rect.width;
+
++
+
++        if (!clickedInDialog) {
+
++            closeProductDialog();
+
++        }
+
++    });
+
++});
+

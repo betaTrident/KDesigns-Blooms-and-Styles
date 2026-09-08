@@ -2,7 +2,6 @@
   "name": "kdesigns-blooms-and-styles",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
   "scripts": {
     "build:css": "tailwindcss -i resources/css/app.css -o public/assets/css/app.css",
     "watch:css": "tailwindcss -i resources/css/app.css -o public/assets/css/app.css --watch"

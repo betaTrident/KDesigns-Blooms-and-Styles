@@ -421,3 +421,5 @@ Use this as the live tracker. Finish a phase before starting the next.
 - [x] **P8** Secrets hygiene, HTTPS-ready headers, tests, uploads, log mailer (no payment gateway)
 
 **Next concrete action:** Production TLS (`APP_ENV=production` only on HTTPS), rotate the admin password if this repo was ever shared, then a real payment provider when merchant keys exist. Do not treat compiled CSS as a substitute for that.
+
+**Admin operations (post-P8):** Orders management (filters, payment recording), inventory CRUD, and the Overview analytics dashboard shipped after P8 — see [2026-09-08 admin plan](superpowers/plans/2026-09-08-admin-orders-inventory-overview.md).

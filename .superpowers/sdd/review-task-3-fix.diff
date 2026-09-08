@@ -1,0 +1,33 @@
+# Review package: Task 3 fix (payment dialog filter data)
+
+## Commits
+(none)
+
+## Files changed
+views/admin/dashboard.php (render call only)
+
+## Diff (relevant hunk)
+
+```php
+    <?php View::render('partials/admin-payment-dialog', [
+        'ordersTabUrl' => $ordersTabUrl ?? Orders::adminOrdersUrl(Orders::normalizeAdminFilters([])),
+        'orderFilters' => $orderFilters ?? Orders::normalizeAdminFilters([]),
+    ]); ?>
+```
+
+Previously: `View::render('partials/admin-payment-dialog');`
+
+The dialog partial still reads:
+
+```php
+<form method="POST" action="<?= e($ordersTabUrl ?? Orders::adminOrdersUrl($orderFilters ?? [])); ?>">
+<input type="hidden" name="filter_status" value="<?= e($orderFilters['status'] ?? 'all'); ?>">
+<input type="hidden" name="filter_payment" value="<?= e($orderFilters['payment'] ?? 'all'); ?>">
+```
+
+View::render isolates extract() to the $data array (src/View.php:15-18). Passing these keys is the fix.
+
+## Tests (from implementer fix report)
+
+C:\xampp\php\php.exe vendor\bin\phpunit tests/OrdersAdminFiltersTest.php
+OK (5 tests, 6 assertions)

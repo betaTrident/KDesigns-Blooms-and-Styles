@@ -5,7 +5,7 @@ $tab = $tab ?? 'overview';
 $pendingCount = (int) ($pendingCount ?? 0);
 $lowStockCount = (int) ($lowStockCount ?? 0);
 ?>
-    <aside id="admin-sidebar" class="w-64 bg-[#361012] text-white flex flex-col justify-between flex-shrink-0 fixed inset-y-0 left-0 z-50 md:static">
+    <aside id="admin-sidebar" class="w-64 bg-[#361012] text-white flex flex-col justify-between flex-shrink-0 h-dvh overflow-y-auto overscroll-contain fixed inset-y-0 left-0 z-50 md:relative md:inset-auto md:h-full">
         <div>
             <div class="px-6 py-6 border-b border-white/10 flex items-start justify-between gap-3">
                 <div class="min-w-0">

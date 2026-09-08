@@ -20,6 +20,11 @@
     overflow-x: clip;
   }
 
+  html:has(#admin-sidebar) {
+    height: 100%;
+    overflow: hidden;
+  }
+
   body.nav-open {
     overflow: hidden;
   }
@@ -44,6 +49,12 @@
   }
 }
 
+@media (min-width: 768px) {
+  #admin-sidebar {
+    transform: none;
+  }
+}
+
 .admin-desktop-table {
   display: none;
 }
@@ -64,5 +75,19 @@
     font-size: 1.875rem;
     line-height: 2.25rem;
   }
+}
+
+.payment-confirm-dialog::backdrop {
+  background: rgb(0 0 0 / 0.5);
+}
+
+.payment-confirm-dialog {
+  margin: auto;
+}
+
+.product-form-dialog {
+  width: min(42rem, calc(100% - 2rem));
+  max-height: min(90dvh, 52rem);
+  overflow-y: auto;
 }
 

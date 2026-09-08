@@ -1,0 +1,109 @@
+﻿# Review package: Task 6 polish (uncommitted)
+# Judge Task 6 only: awaiting filter, inventory form polish, dialogs, STRATEGIC-PLAN, package.json, new filter test.
+
+## Commits
+(none)
+
+## Files changed (working tree vs HEAD — mixed with earlier tasks except package.json / STRATEGIC-PLAN / filter test)
+ docs/STRATEGIC-PLAN.md |   2 +
+ package.json           |   1 -
+ src/Catalog.php        | 249 +++++++++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 251 insertions(+), 1 deletion(-)
+
+## Diff package.json
+
+diff --git a/package.json b/package.json
+index 34b0204..2adadcb 100644
+--- a/package.json
++++ b/package.json
+@@ -1,13 +1,12 @@
+ {
+   "name": "kdesigns-blooms-and-styles",
+   "version": "1.0.0",
+   "description": "",
+-  "main": "index.js",
+   "scripts": {
+     "build:css": "tailwindcss -i resources/css/app.css -o public/assets/css/app.css",
+     "watch:css": "tailwindcss -i resources/css/app.css -o public/assets/css/app.css --watch"
+   },
+   "author": "",
+   "license": "ISC",
+   "engines": {
+     "node": ">=20"
+
+## Diff docs/STRATEGIC-PLAN.md
+
+diff --git a/docs/STRATEGIC-PLAN.md b/docs/STRATEGIC-PLAN.md
+index adef6af..c9780b0 100644
+--- a/docs/STRATEGIC-PLAN.md
++++ b/docs/STRATEGIC-PLAN.md
+@@ -416,8 +416,10 @@ Use this as the live tracker. Finish a phase before starting the next.
+ - [x] **P3** Signup insert ┬╖ login from `users` ┬╖ admin role gate ┬╖ remove extra logins
+ - [x] **P4** Order transaction ┬╖ customer tracker from DB ┬╖ stock decrement
+ - [x] **P5** Admin tabs from queries ┬╖ real KPIs
+ - [x] **P6** `src/` + `views/` ┬╖ optional `public/` webroot
+ - [x] **P7** Partials + one CSS pipeline
+ - [x] **P8** Secrets hygiene, HTTPS-ready headers, tests, uploads, log mailer (no payment gateway)
+ 
+ **Next concrete action:** Production TLS (`APP_ENV=production` only on HTTPS), rotate the admin password if this repo was ever shared, then a real payment provider when merchant keys exist. Do not treat compiled CSS as a substitute for that.
++
++**Admin operations (post-P8):** Orders management (filters, payment recording), inventory CRUD, and the Overview analytics dashboard shipped after P8 ΓÇö see [2026-09-08 admin plan](superpowers/plans/2026-09-08-admin-orders-inventory-overview.md).
+
+## Diff tests/OrdersAdminFiltersTest.php
+
+
+## Diff payment dialog
+
+diff --git a/views/partials/admin-payment-dialog.php b/views/partials/admin-payment-dialog.php
+new file mode 100644
+index 0000000..1408dd8
+--- /dev/null
++++ b/views/partials/admin-payment-dialog.php
+@@ -0,0 +1,18 @@
++<?php
++declare(strict_types=1);
++?>
++<dialog id="payment-confirm" class="payment-confirm-dialog rounded border border-gray-200 bg-white shadow-xl max-w-md w-[calc(100%-2rem)] p-0" aria-labelledby="payment-confirm-title">
++    <form method="POST" action="<?= e($ordersTabUrl ?? Orders::adminOrdersUrl($orderFilters ?? [])); ?>" class="p-6 space-y-4">
++        <?= csrf_field(); ?>
++        <input type="hidden" name="order_id" id="payment-confirm-order-id" value="">
++        <input type="hidden" name="filter_status" value="<?= e($orderFilters['status'] ?? 'all'); ?>">
++        <input type="hidden" name="filter_payment" value="<?= e($orderFilters['payment'] ?? 'all'); ?>">
++        <h2 id="payment-confirm-title" class="font-serif font-bold text-lg text-gray-900">Confirm payment</h2>
++        <p class="text-sm text-gray-700">Record payment for <strong id="payment-confirm-code" class="text-gray-900"></strong>?</p>
++        <p id="payment-confirm-meta" class="text-xs text-gray-500"></p>
++        <div class="flex flex-wrap justify-end gap-2 pt-2">
++            <button type="button" value="cancel" data-payment-cancel class="px-4 py-2 border border-gray-300 rounded text-[10px] font-bold uppercase text-gray-700 hover:bg-gray-50">Cancel</button>
++            <button type="submit" name="confirm_payment" value="1" class="px-4 py-2 bg-emerald-700 text-white rounded text-[10px] font-bold uppercase hover:bg-emerald-800">Confirm payment</button>
++        </div>
++    </form>
++</dialog>
+
+## Diff product dialog
+
+diff --git a/views/partials/admin-product-dialog.php b/views/partials/admin-product-dialog.php
+new file mode 100644
+index 0000000..c4da6fa
+--- /dev/null
++++ b/views/partials/admin-product-dialog.php
+@@ -0,0 +1,16 @@
++<?php
++declare(strict_types=1);
++?>
++<dialog id="product-confirm" class="payment-confirm-dialog rounded border border-gray-200 bg-white shadow-xl max-w-md w-[calc(100%-2rem)] p-0" aria-labelledby="product-confirm-title">
++    <form method="POST" action="admin.php?tab=inventory" class="p-6 space-y-4">
++        <?= csrf_field(); ?>
++        <input type="hidden" name="product_id" id="product-confirm-id" value="">
++        <input type="hidden" name="is_active" id="product-confirm-active" value="">
++        <h2 id="product-confirm-title" class="font-serif font-bold text-lg text-gray-900">Confirm action</h2>
++        <p id="product-confirm-message" class="text-sm text-gray-700"></p>
++        <div class="flex flex-wrap justify-end gap-2 pt-2">
++            <button type="button" value="cancel" data-product-cancel class="px-4 py-2 border border-gray-300 rounded text-[10px] font-bold uppercase text-gray-700 hover:bg-gray-50">Cancel</button>
++            <button type="submit" id="product-confirm-submit" name="set_product_active" value="1" class="px-4 py-2 bg-[#4c1719] text-white rounded text-[10px] font-bold uppercase hover:opacity-90">Confirm</button>
++        </div>
++    </form>
++</dialog>
+
+## Awaiting filter (src/Orders.php current)
+
+

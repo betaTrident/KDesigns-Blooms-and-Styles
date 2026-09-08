@@ -14,6 +14,7 @@ View::render('storefront/home', [
     'pageTitle'     => 'KDesigns Blooms and Styles',
     'cssBundle'     => 'storefront',
     'is_logged_in'  => Auth::isLoggedIn(),
+    'is_admin'      => Auth::isAdmin(),
     'user_name'     => (string) ($_SESSION['user_name'] ?? ''),
     'catalog'       => Catalog::allActive(),
 ]);

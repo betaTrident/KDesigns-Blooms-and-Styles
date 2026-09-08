@@ -4,7 +4,12 @@ declare(strict_types=1);
 <?php View::render('partials/head', ['pageTitle' => $pageTitle, 'cssBundle' => $cssBundle]); ?>
 <body>
 
-<?php View::render('partials/storefront-nav', ['is_logged_in' => $is_logged_in ?? false, 'user_name' => $user_name ?? '', 'navVariant' => 'storefront']); ?>
+<?php View::render('partials/storefront-nav', [
+    'is_logged_in' => $is_logged_in ?? false,
+    'is_admin'     => $is_admin ?? false,
+    'user_name'    => $user_name ?? '',
+    'navVariant'   => 'storefront',
+]); ?>
 
     <!-- Hero Section -->
     <header id="home" class="hero" style="background-image: url('<?= e(kd_image_url('images/IMG_8620.JPG')); ?>');">
