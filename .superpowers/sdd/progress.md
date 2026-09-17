@@ -1,4 +1,4 @@
-# SDD Progress record — Admin orders / inventory / overview / initial
+# SDD Progress record — Admin orders / inventory / overview / initial scaffold
 
 Branch: feat/restructure
 Plan: docs/superpowers/plans/2026-09-08-admin-orders-inventory-overview.md
