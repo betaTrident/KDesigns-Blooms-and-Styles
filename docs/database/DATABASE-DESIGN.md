@@ -1,4 +1,4 @@
-# Database design — KDesigns Blooms & Styles
+# Database design structure — KDesigns Blooms & Styles
 
 **Important:** there is **no MariaDB schema in use today**. phpMyAdmin would be empty for this app. What exists now is PHP session arrays and hardcoded catalogs. The **target ERD** below is the design from the [strategic plan](../STRATEGIC-PLAN.md) (Phase 1).
 
